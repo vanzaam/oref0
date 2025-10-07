@@ -147,13 +147,17 @@ extension SwiftOpenAPSAlgorithms {
             }
         }
 
-        // ЭТАП 5-6: MAIN LOOP (lines 150-234)
+        // ЭТАП 5-7: MAIN LOOP (lines 150-317)
         // Initialize arrays and variables
         var deviations: [Double] = []
         var avgDeltas: [Double] = []
         var bgis: [Double] = []
         var mealCOB: Double = 0
         var mealCarbs: Double = 0
+        var absorbing: Bool = false
+        var uam: Bool = false
+        var mealStartCounter: Int = 999
+        var type: String = ""
         
         // Line 150: Loop through bucketed_data starting from index 3
         for i in 3..<bucketed_data.count {
@@ -228,18 +232,89 @@ extension SwiftOpenAPSAlgorithms {
                 }
             }
             
-            // Lines 225-234: Calculate carb absorption
+            // Lines 231-239: Calculate carb absorption
             if mealCOB > 0 {
-                // Line 227: ci = max(deviation, min_5m_carbimpact)
+                // Line 234: ci = max(deviation, min_5m_carbimpact)
                 let ci = max(deviation, profile.min_5m_carbimpact)
-                // Line 228: absorbed = ci * carb_ratio / sens
+                // Line 236: absorbed = ci * carb_ratio / sens
                 let absorbed = ci * profile.carb_ratio / sens
-                // Line 230: Subtract absorbed from mealCOB
+                // Line 238: Subtract absorbed from mealCOB
                 mealCOB = max(0, mealCOB - absorbed)
             }
             
-            // TODO: ЭТАПЫ 7-11 (UAM, tempTarget, padding, percentile, ratio)
-            // For now just collect deviations
+            // ЭТАП 7: ABSORBING + UAM + TYPE CLASSIFICATION (lines 236-298)
+            
+            // Lines 238-265: CSF (Carb/meal absorption) tracking
+            if mealCOB > 0 || absorbing || mealCarbs > 0 {
+                // Line 239-243: Update absorbing flag
+                if deviation > 0 {
+                    absorbing = true
+                } else {
+                    absorbing = false
+                }
+                
+                // Line 245-249: Stop excluding if meal absorbing > 5h
+                if mealStartCounter > 60 && mealCOB < 0.5 {
+                    debug(.openAPS, "\(Int(round(mealCOB)))g COB")
+                    absorbing = false
+                }
+                
+                // Line 250-252: Reset mealCarbs if not absorbing
+                if !absorbing && mealCOB < 0.5 {
+                    mealCarbs = 0
+                }
+                
+                // Line 255-260: Check if starting meal absorption
+                if type != "csf" {
+                    debug(.openAPS, "Starting carb absorption")
+                    mealStartCounter = 0
+                }
+                
+                mealStartCounter += 1
+                type = "csf"
+                
+            } else {
+                // Lines 268-272: End CSF if was absorbing
+                if type == "csf" {
+                    debug(.openAPS, "Ending carb absorption")
+                }
+                
+                // Lines 274-297: UAM (Unannounced Meal) detection
+                // Line 277: Check if UAM conditions met
+                let retrospective = inputs.retrospective ?? false
+                if (!retrospective && iobResult.iob > 2 * currentBasal) || uam || mealStartCounter < 9 {
+                    mealStartCounter += 1
+                    
+                    // Line 279-283: Update UAM flag
+                    if deviation > 0 {
+                        uam = true
+                    } else {
+                        uam = false
+                    }
+                    
+                    // Line 284-288: Check if starting UAM
+                    if type != "uam" {
+                        debug(.openAPS, "Starting UAM")
+                    }
+                    
+                    type = "uam"
+                    
+                } else {
+                    // Line 292-296: Not UAM
+                    if type == "uam" {
+                        debug(.openAPS, "Ending UAM")
+                    }
+                    type = "non-meal"
+                }
+            }
+            
+            // Lines 301-317: Collect deviations based on type
+            if type == "non-meal" {
+                // Only non-meal deviations go into autosens
+                deviations.append(deviation)
+            }
+            
+            // TODO: ЭТАПЫ 8-11 (tempTarget, padding, percentile, ratio)
         }
         
         // TODO: Analyze deviations and calculate ratio (ЭТАП 10-11)
