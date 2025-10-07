@@ -72,6 +72,8 @@ extension SwiftOpenAPSAlgorithms {
         let enableSMBHighBGTarget: Double?     // enableSMB_high_bg_target (строка 240)
         let enableUAM: Bool?                   // enableUAM (строка 461)
         let maxDeltaBGThreshold: Double?       // maxDelta_bg_threshold (строка 870-875)
+        let bolusIncrement: Double?            // bolus_increment (строка 1097-1098)
+        let smbInterval: Double?               // SMBInterval (строка 1132-1137)
 
         // Дополнительные параметры безопасности
         let advTargetAdjustments: Bool
@@ -178,6 +180,8 @@ extension SwiftOpenAPSAlgorithms {
             enableSMBHighBGTarget: inputs.preferences?.enableSMBHighBGTarget,
             enableUAM: inputs.preferences?.enableUAM,
             maxDeltaBGThreshold: inputs.preferences?.maxDeltaBGThreshold,
+            bolusIncrement: inputs.preferences?.bolusIncrement,
+            smbInterval: inputs.preferences?.smbInterval,
 
             // Дополнительные параметры безопасности
             advTargetAdjustments: inputs.preferences?.advTargetAdjustments ?? false,

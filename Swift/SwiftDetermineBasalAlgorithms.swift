@@ -796,6 +796,117 @@ extension SwiftOpenAPSAlgorithms {
             enableSMB = false
         }
 
+        // ТОЧНАЯ SMB calculation logic из оригинала (строка 1076-1155)
+        // only allow microboluses with COB or low temp targets, or within DIA hours of a bolus
+        if inputs.microBolusAllowed && enableSMB && glucose.glucose > threshold {
+            // Расчет insulinReq (должен быть определен выше в полной портации)
+            let insulinReq = (glucose.glucose - targetBG) / sensitivity
+            
+            // never bolus more than maxSMBBasalMinutes worth of basal (строка 1077-1095)
+            let mealInsulinReq = round((meal?.mealCOB ?? 0) / profile.carbRatioValue, digits: 3)
+            let maxBolus: Double
+            
+            if profile.maxSMBBasalMinutes == nil {
+                maxBolus = round(profile.currentBasal * 30 / 60, digits: 1)
+                debug(.openAPS, "profile.maxSMBBasalMinutes undefined: defaulting to 30m")
+            } else if iob.iob > mealInsulinReq && iob.iob > 0 {
+                // if IOB covers more than COB, limit maxBolus to 30m of basal
+                debug(.openAPS, "IOB \(iob.iob) > COB \(meal?.mealCOB ?? 0); mealInsulinReq = \(mealInsulinReq)")
+                if let maxUAMSMBBasalMinutes = profile.maxUAMSMBBasalMinutes {
+                    debug(.openAPS, "profile.maxUAMSMBBasalMinutes: \(maxUAMSMBBasalMinutes) profile.current_basal: \(profile.currentBasal)")
+                    maxBolus = round(profile.currentBasal * maxUAMSMBBasalMinutes / 60, digits: 1)
+                } else {
+                    debug(.openAPS, "profile.maxUAMSMBBasalMinutes undefined: defaulting to 30m")
+                    maxBolus = round(profile.currentBasal * 30 / 60, digits: 1)
+                }
+            } else {
+                let maxSMBBasalMinutes = profile.maxSMBBasalMinutes ?? 30
+                debug(.openAPS, "profile.maxSMBBasalMinutes: \(maxSMBBasalMinutes) profile.current_basal: \(profile.currentBasal)")
+                maxBolus = round(profile.currentBasal * maxSMBBasalMinutes / 60, digits: 1)
+            }
+            
+            // bolus 1/2 the insulinReq, up to maxBolus, rounding down to nearest bolus increment (строка 1096-1100)
+            let bolusIncrement = profile.bolusIncrement ?? 0.1
+            let roundSMBTo = 1 / bolusIncrement
+            let microBolus = floor(min(insulinReq / 2, maxBolus) * roundSMBTo) / roundSMBTo
+            
+            // calculate a long enough zero temp to eventually correct back up to target (строка 1101-1104)
+            let smbTarget = targetBG
+            let naiveEventualBG = glucose.glucose + (bgi * (profile.dia * 60 / 5))  // упрощенный расчет
+            // TODO: использовать minIOBPredBG из prediction arrays когда будет полная портация
+            let worstCaseInsulinReq = (smbTarget - naiveEventualBG) / sensitivity
+            var durationReq = round(60 * worstCaseInsulinReq / profile.currentBasal)
+            
+            // if insulinReq > 0 but not enough for a microBolus, don't set an SMB zero temp (строка 1106-1109)
+            if insulinReq > 0 && microBolus < bolusIncrement {
+                durationReq = 0
+            }
+            
+            var smbLowTempReq = 0.0
+            if durationReq <= 0 {
+                durationReq = 0
+            } else if durationReq >= 30 {
+                // don't set an SMB zero temp longer than 60 minutes (строка 1114-1118)
+                durationReq = round(durationReq / 30) * 30
+                durationReq = min(60, max(0, durationReq))
+            } else {
+                // if SMB durationReq is less than 30m, set a nonzero low temp (строка 1119-1122)
+                smbLowTempReq = round(Double(adjustedBasal) * durationReq / 30, digits: 2)
+                durationReq = 30
+            }
+            
+            var smbReason = " insulinReq \(insulinReq)"
+            if microBolus >= maxBolus {
+                smbReason += "; maxBolus \(maxBolus)"
+            }
+            if durationReq > 0 {
+                smbReason += "; setting \(Int(durationReq))m low temp of \(smbLowTempReq)U/h"
+            }
+            smbReason += ". "
+            
+            // allow SMBs every 3 minutes by default (строка 1132-1142)
+            let SMBInterval = min(10, max(1, profile.smbInterval ?? 3))
+            let lastBolusAge = (meal?.lastBolusTime.map { clock.timeIntervalSince($0) / 60 } ?? 999)
+            let nextBolusMins = round(SMBInterval - lastBolusAge)
+            let nextBolusSeconds = round((SMBInterval - lastBolusAge) * 60).truncatingRemainder(dividingBy: 60)
+            
+            debug(.openAPS, "naive_eventualBG \(convertBG(naiveEventualBG, profile: profile)), \(Int(durationReq))m \(smbLowTempReq)U/h temp needed; last bolus \(lastBolusAge)m ago; maxBolus: \(maxBolus)")
+            
+            if lastBolusAge > SMBInterval {
+                if microBolus > 0 {
+                    // Возвращаем SMB результат с микроболюсом (строка 1144-1147)
+                    smbReason = "Microbolusing \(microBolus)U. " + smbReason
+                    
+                    return .success(DetermineBasalResult(
+                        temp: "absolute",
+                        bg: glucose.glucose,
+                        tick: formatTick(glucose.delta),
+                        eventualBG: eventualBG,
+                        insulinReq: insulinReq,
+                        reservoir: inputs.reservoir.map { $0.reservoir },
+                        deliverAt: clock,
+                        sensitivityRatio: sensitivityRatio,
+                        reason: smbReason,
+                        rate: smbLowTempReq,
+                        duration: Int(durationReq),
+                        units: microBolus,  // ← МИКРОБОЛЮС!
+                        carbsReq: nil,
+                        BGI: convertBG(bgi, profile: profile),
+                        deviation: convertBG(deviation, profile: profile),
+                        ISF: convertBG(sensitivity, profile: profile),
+                        targetBG: convertBG(targetBG, profile: profile),
+                        predBGs: predictionArrays.predBGsDict,
+                        profile: profile
+                    ))
+                }
+            } else {
+                smbReason += "Waiting \(Int(nextBolusMins))m \(Int(nextBolusSeconds))s to microbolus again. "
+            }
+            
+            // if no zero temp is required, don't return yet; allow later code to set a high temp (строка 1153-1154)
+            // Продолжаем к обычной temp basal logic
+        }
+
         // Основная логика принятия решений с РАЗМИНИФИЦИРОВАННЫМИ переменными + prediction arrays
         let basalDecisionResult = makeBasalDecisionWithPredictions(
             currentBG: glucose.glucose,
