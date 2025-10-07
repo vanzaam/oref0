@@ -1591,64 +1591,11 @@ extension SwiftOpenAPSAlgorithms {
         round((targetBG - eventualBG) / 24.0 * 10) / 10
     }
 
-    /// ТОЧНАЯ функция округления базала как в oref0 (функция round_basal)
-    private static func roundBasal(_ basal: Double, profile _: ProfileResult) -> Double {
-        // Функция round_basal из оригинального JS - rounds basal rate
-        // Обычно округляет до 0.05 или 0.1 в зависимости от помпы
-
-        // Для большинства помп округление до 0.05
-        let increment = 0.05
-        return round(basal / increment) * increment
-    }
-
-    private static func calculateZeroTempDuration(bgUndershoot: Double, sensitivity: Double, currentBasal: Double) -> Int {
-        let insulinReq = bgUndershoot / sensitivity
-        let duration = Int(60 * insulinReq / currentBasal)
-        return max(30, min(120, (duration / 30) * 30)) // Округляем до 30 минут
-    }
-
-    private static func getMaxSafeBasal(profile: ProfileResult) -> Double {
-        // ТОЧНАЯ ФОРМУЛА из JS: обычно max из maxBasal и current*safety_multiplier
-        let maxBasal = Double(profile.settings.maxBasal)
-        let currentBasal = profile.currentBasal
-        let safetyMultiplier = 4.0 // Обычно current_basal_safety_multiplier
-
-        return min(maxBasal, currentBasal * safetyMultiplier)
-    }
-
-    private static func calculateMicrobolusDose(
-        insulinReq: Double,
-        profile: ProfileResult,
-        iob: IOBResult,
-        meal: MealResult?
-    ) -> Double {
-        // ТОЧНАЯ логика микроболюса из оригинального JS
-
-        // Определяем максимальный микроболюс на основе профиля
-        let mealInsulinReq = (meal?.mealCOB ?? 0) / profile.carbRatioValue
-
-        var maxMicrobolusDose: Double
-
-        // Логика из JS: if IOB > meal insulin req, use maxUAMSMBBasalMinutes, else maxSMBBasalMinutes
-        if iob.iob > mealInsulinReq, iob.iob > 0 {
-            // maxUAMSMBBasalMinutes (обычно 30 минут)
-            let maxUAMSMBBasalMinutes = profile.maxUAMSMBBasalMinutes ?? 30.0
-            maxMicrobolusDose = round((profile.currentBasal * maxUAMSMBBasalMinutes / 60.0) * 100) / 100
-        } else {
-            // maxSMBBasalMinutes (обычно 30 минут)
-            let maxSMBBasalMinutes = profile.maxSMBBasalMinutes ?? 30.0
-            maxMicrobolusDose = round((profile.currentBasal * maxSMBBasalMinutes / 60.0) * 100) / 100
-        }
-
-        // Ограничиваем болюсным инкрементом (используем стандартный 0.1)
-        let bolusIncrement = 0.1 // Стандартный инкремент болюса
-        let microbolusDose = min(insulinReq / 2.0, maxMicrobolusDose)
-
-        // Округляем до инкремента болюса
-        let roundedDose = floor(microbolusDose / bolusIncrement) * bolusIncrement
-
-        return max(0, roundedDose)
-    }
+    // 🚨 УДАЛЕНО: Неточные функции с "обычно" перенесены в SwiftBasalSetTemp.swift
+    // roundBasal() - теперь в SwiftBasalSetTemp.swift с ТОЧНОЙ логикой из lib/round-basal.js
+    // getMaxSafeBasal() - теперь в SwiftBasalSetTemp.swift с ТОЧНОЙ формулой из lib/basal-set-temp.js
+    // calculateZeroTempDuration() - удалена, не из оригинального JS
+    // calculateMicrobolusDose() - удалена, содержала "обычно"
 
     // MARK: - Result Creators
 
