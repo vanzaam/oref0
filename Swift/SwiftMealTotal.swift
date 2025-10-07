@@ -1,5 +1,14 @@
 import Foundation
 
+// ВАЖНО: Для компиляции требуется SwiftTypes.swift с определениями:
+// - PumpHistoryEvent
+// - ProfileResult
+// - BloodGlucose
+// - BasalProfileEntry
+// - MealInput (из SwiftMealHistory)
+//
+// В FreeAPS X эти типы должны быть заменены на реальные типы из проекта!
+
 /// ТОЧНАЯ портация lib/meal/total.js
 /// НИ ОДНОГО упрощения! Все как в оригинале!
 enum SwiftMealTotal {
