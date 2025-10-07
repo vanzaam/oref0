@@ -106,10 +106,10 @@ extension SwiftOpenAPSAlgorithms {
             }
             
             // 2c. Nightscout Care Portal entries (lines 60-73)
-            else if let typeName = current.typeName,
-                    (typeName == "Meal Bolus" || typeName == "Correction Bolus" || 
-                     typeName == "Snack Bolus" || typeName == "Bolus Wizard" || 
-                     typeName == "Carb Correction"),
+            else if let eventType = current.eventType,
+                    (eventType == "Meal Bolus" || eventType == "Correction Bolus" || 
+                     eventType == "Snack Bolus" || eventType == "Bolus Wizard" || 
+                     eventType == "Carb Correction"),
                     let createdAt = current.createdAt {
                 var temp = MealInput(timestamp: createdAt)
                 temp.carbs = Double(current.carbs ?? 0)
