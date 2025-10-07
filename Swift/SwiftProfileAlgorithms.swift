@@ -57,9 +57,18 @@ extension SwiftOpenAPSAlgorithms {
         let autosensMax: Double
         let halfBasalExerciseTarget: Double?
 
-        // Микроболюсные параметры
+        // Микроболюсные параметры (из profile/index.js)
         let maxSMBBasalMinutes: Double?
         let maxUAMSMBBasalMinutes: Double?
+        
+        // SMB enable/disable флаги (из enable_smb функции determine-basal.js:51-126)
+        let allowSMBWithHighTemptarget: Bool?  // allowSMB_with_high_temptarget
+        let a52RiskEnable: Bool?               // A52_risk_enable
+        let enableSMBAlways: Bool?             // enableSMB_always
+        let enableSMBWithCOB: Bool?            // enableSMB_with_COB
+        let enableSMBAfterCarbs: Bool?         // enableSMB_after_carbs
+        let enableSMBWithTemptarget: Bool?     // enableSMB_with_temptarget
+        let enableSMBHighBG: Bool?             // enableSMB_high_bg
 
         // Дополнительные параметры безопасности
         let advTargetAdjustments: Bool
@@ -154,6 +163,15 @@ extension SwiftOpenAPSAlgorithms {
             // Микроболюсные параметры
             maxSMBBasalMinutes: Double(inputs.preferences?.maxSMBBasalMinutes ?? 30),
             maxUAMSMBBasalMinutes: Double(inputs.preferences?.maxUAMSMBBasalMinutes ?? 30),
+            
+            // SMB enable/disable флаги (точно по оригиналу из enable_smb)
+            allowSMBWithHighTemptarget: inputs.preferences?.allowSMBWithHighTemptarget,
+            a52RiskEnable: inputs.preferences?.a52RiskEnable,
+            enableSMBAlways: inputs.preferences?.enableSMBAlways,
+            enableSMBWithCOB: inputs.preferences?.enableSMBWithCOB,
+            enableSMBAfterCarbs: inputs.preferences?.enableSMBAfterCarbs,
+            enableSMBWithTemptarget: inputs.preferences?.enableSMBWithTemptarget,
+            enableSMBHighBG: inputs.preferences?.enableSMBHighBG,
 
             // Дополнительные параметры безопасности
             advTargetAdjustments: inputs.preferences?.advTargetAdjustments ?? false,

@@ -192,6 +192,86 @@ extension SwiftOpenAPSAlgorithms {
         return round(bgi + (targetDelta / fiveMinBlocks), digits: 1)
     }
 
+    /// ТОЧНАЯ портация функции enable_smb из determine-basal.js:51-126
+    /// НЕТ ИЗМЕНЕНИЙ! Каждая строка соответствует оригиналу
+    /// Определяет, можно ли использовать Super Micro Bolus (SMB)
+    private static func enableSMB(
+        profile: ProfileResult,
+        microBolusAllowed: Bool,
+        mealData: MealResult?,
+        bg: Double,
+        targetBG: Double,
+        highBG: Double?
+    ) -> Bool {
+        // disable SMB when a high temptarget is set (строка 59-69)
+        if !microBolusAllowed {
+            debug(.openAPS, "SMB disabled (!microBolusAllowed)")
+            return false
+        } else if !(profile.allowSMBWithHighTemptarget ?? true) && profile.temptargetSet && targetBG > 100 {
+            debug(.openAPS, "SMB disabled due to high temptarget of \(targetBG)")
+            return false
+        } else if mealData?.bwFound == true && !(profile.a52RiskEnable ?? false) {
+            debug(.openAPS, "SMB disabled due to Bolus Wizard activity in the last 6 hours.")
+            return false
+        }
+
+        // enable SMB/UAM if always-on (unless previously disabled for high temptarget) (строка 71-79)
+        if profile.enableSMBAlways ?? false {
+            if mealData?.bwFound == true {
+                debug(.openAPS, "Warning: SMB enabled within 6h of using Bolus Wizard: be sure to easy bolus 30s before using Bolus Wizard")
+            } else {
+                debug(.openAPS, "SMB enabled due to enableSMB_always")
+            }
+            return true
+        }
+
+        // enable SMB/UAM (if enabled in preferences) while we have COB (строка 81-89)
+        if profile.enableSMBWithCOB ?? false && (mealData?.mealCOB ?? 0) > 0 {
+            if mealData?.bwCarbs ?? 0 > 0 {
+                debug(.openAPS, "Warning: SMB enabled with Bolus Wizard carbs: be sure to easy bolus 30s before using Bolus Wizard")
+            } else {
+                debug(.openAPS, "SMB enabled for COB of \(mealData?.mealCOB ?? 0)")
+            }
+            return true
+        }
+
+        // enable SMB/UAM (if enabled in preferences) for a full 6 hours after any carb entry (строка 91-100)
+        // (6 hours is defined in carbWindow in lib/meal/total.js)
+        if profile.enableSMBAfterCarbs ?? false && (mealData?.carbs ?? 0) > 0 {
+            if mealData?.bwCarbs ?? 0 > 0 {
+                debug(.openAPS, "Warning: SMB enabled with Bolus Wizard carbs: be sure to easy bolus 30s before using Bolus Wizard")
+            } else {
+                debug(.openAPS, "SMB enabled for 6h after carb entry")
+            }
+            return true
+        }
+
+        // enable SMB/UAM (if enabled in preferences) if a low temptarget is set (строка 102-110)
+        if profile.enableSMBWithTemptarget ?? false && profile.temptargetSet && targetBG < 100 {
+            if mealData?.bwFound == true {
+                debug(.openAPS, "Warning: SMB enabled within 6h of using Bolus Wizard: be sure to easy bolus 30s before using Bolus Wizard")
+            } else {
+                debug(.openAPS, "SMB enabled for temptarget of \(convertBG(targetBG, profile: profile))")
+            }
+            return true
+        }
+
+        // enable SMB if high bg is found (строка 112-122)
+        if profile.enableSMBHighBG ?? false, let highBG = highBG, bg >= highBG {
+            debug(.openAPS, "Checking BG to see if High for SMB enablement.")
+            debug(.openAPS, "Current BG \(bg) | High BG \(highBG)")
+            if mealData?.bwFound == true {
+                debug(.openAPS, "Warning: High BG SMB enabled within 6h of using Bolus Wizard: be sure to easy bolus 30s before using Bolus Wizard")
+            } else {
+                debug(.openAPS, "High BG detected. Enabling SMB.")
+            }
+            return true
+        }
+
+        debug(.openAPS, "SMB disabled (no enableSMB preferences active or no condition satisfied)")
+        return false
+    }
+
     /// ТОЧНОЕ портирование freeaps_determineBasal функции из минифицированного JavaScript
     /// НЕТ УПРОЩЕНИЙ! Каждая строка соответствует исходному алгоритму oref0
     /// Основной алгоритм принятия решений OpenAPS для управления инсулином
