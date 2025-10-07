@@ -225,7 +225,7 @@ final class SwiftOpenAPSAlgorithms {
             )
         }
 
-        // Если temp basal был ниже базального, IOB отрицательный
+        // If temp basal was below basal rate, IOB is negative
         let finalIOB = netBasalRate > 0 ? iobResult.iob : -iobResult.iob
         let finalActivity = netBasalRate > 0 ? iobResult.activity : -iobResult.activity
 

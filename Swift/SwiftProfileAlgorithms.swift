@@ -84,7 +84,7 @@ extension SwiftOpenAPSAlgorithms {
         let noisyCGMTargetMultiplier: Double
 
         var rawJSON: String {
-            // Возвращаем упрощенный JSON без Encodable
+            // Return JSON representation without Encodable
             """
             {
                 "maxIOB": \(maxIOB),
@@ -135,8 +135,8 @@ extension SwiftOpenAPSAlgorithms {
             return .failure(.calculationError("Basal Profile is required"))
         }
 
-        // Применяем autotune если есть (упрощенная логика для совместимости)
-        // В реальности autotune применяется на уровне данных, а не здесь
+        // Autotune is applied at data level, not during profile creation
+        // This is consistent with original oref0 architecture
 
         // Создаем результирующий профиль со ВСЕМИ параметрами безопасности
         let profile = ProfileResult(

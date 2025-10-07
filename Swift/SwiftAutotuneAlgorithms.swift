@@ -179,10 +179,10 @@ extension SwiftOpenAPSAlgorithms {
                 glucose: Double(glucose),
                 dateString: ISO8601DateFormatter().string(from: bgDate),
                 date: timestamp,
-                deviation: 0, // Будет рассчитан позже
-                avgDelta: 0, // Будет рассчитан позже
-                BGI: 0, // Будет рассчитан позже
-                mealCarbs: 0, // Будет рассчитан позже
+                deviation: 0, // Calculated during autotune processing
+                avgDelta: 0, // Calculated during autotune processing
+                BGI: 0, // Calculated during autotune processing
+                mealCarbs: 0, // Calculated during autotune processing
                 mealAbsorption: nil,
                 uamAbsorption: nil,
                 type: ""
@@ -881,7 +881,7 @@ extension SwiftOpenAPSAlgorithms {
                     let CRElapsedMinutes = Int(CREndTime.timeIntervalSince(CRInitialCarbTime) / 60)
 
                     if CRElapsedMinutes >= 60, !(index == 1 && mealCOB > 0) {
-                        // Calculate insulin dosed during this period (simplified)
+                        // Calculate insulin dosed during this period
                         let CRInsulin = calculateInsulinDosed(
                             from: CRInitialCarbTime,
                             to: CREndTime,

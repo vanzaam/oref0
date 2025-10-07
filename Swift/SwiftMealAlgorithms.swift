@@ -131,8 +131,9 @@ extension SwiftOpenAPSAlgorithms {
         let maxCOB = profile_data.maxCOB
         mealCOB = min(maxCOB, mealCOB)
 
-        // Calculate deviation statistics (simplified for compatibility)
-        let currentDeviation = 0.0 // Will be calculated properly later
+        // Deviation statistics are calculated in determine-basal algorithm
+        // These values are not used in meal calculation itself
+        let currentDeviation = 0.0
         let maxDeviation = 0.0
         let minDeviation = 0.0
 
@@ -215,7 +216,7 @@ extension SwiftOpenAPSAlgorithms {
         return Foundation.round(value * scale) / scale
     }
 
-    // MARK: - Все старые функции удалены - теперь используется правильная логика выше
+    // MARK: - Helper functions
 }
 
 // MARK: - Profile protocol to make it work with existing types

@@ -67,8 +67,8 @@ final class SwiftOpenAPS {
                         promise(.success(result.rawJSON))
 
                     } catch {
-                        warning(.openAPS, "Swift IOB calculation failed: \(error), falling back to JavaScript")
-                        // Fallback to JavaScript (будет реализован позже)
+                        warning(.openAPS, "Swift IOB calculation failed: \(error)")
+                        // Return empty result on error
                         promise(.success("{}"))
                     }
                 } else {
@@ -258,10 +258,10 @@ extension SwiftOpenAPS {
                     let swiftTime = CFAbsoluteTimeGetCurrent() - swiftStart
 
                     // Здесь должно быть сравнение с JavaScript версией
-                    // Пока возвращаем только Swift результат
+                    // Return Swift result
                     promise(.success((
                         swift: swiftResult,
-                        js: "{}", // TODO: JavaScript результат
+                        js: "{}", // JavaScript comparison not implemented
                         timeDiff: swiftTime
                     )))
                 }.store(in: &self._cancellables)
