@@ -352,36 +352,11 @@ final class SwiftOpenAPSAlgorithms {
 
 // MARK: - Расширения для поддержки существующих типов
 
-extension Profile {
-    var dia: Double {
-        // DIA из профиля или значение по умолчанию
-        insulinActionCurve == "rapid-acting" ? 3.0 : 4.0
-    }
-
-    var currentBasal: Double {
-        // basals property не определено в protocol Profile - используем значение по умолчанию
-        1.0 // Будет переопределено в конкретных реализациях (ProfileResult)
-    }
-
-    var insulinActionCurve: String? {
-        // Получаем тип кривой инсулина из профиля
-        // Возможные значения: "bilinear", "rapid-acting", "ultra-rapid"
-        "rapid-acting" // По умолчанию
-    }
-
-    var insulinPeakTime: Double? {
-        // Время пика инсулина в минутах
-        // Из lib/iob/calculate.js: rapid-acting = 75, ultra-rapid = 55
-        switch insulinActionCurve {
-        case "rapid-acting":
-            return 75.0
-        case "ultra-rapid":
-            return 55.0
-        default:
-            return 75.0
-        }
-    }
-}
+// ProfileResult уже имеет все необходимые поля:
+// - dia (line 41 в SwiftProfileAlgorithms.swift)
+// - currentBasal (line 44)
+// - exerciseMode, temptargetSet и т.д.
+// Extension не нужен - все поля определены в ProfileResult!
 
 extension TempBasal {
     init(rate: Double, duration: Double, timestamp: Date) {
