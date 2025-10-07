@@ -152,9 +152,32 @@ extension SwiftOpenAPSAlgorithms {
         crData: [AutotuneCREntry],
         currentCarbRatio: Double
     ) -> Double {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 420-450
-        // TODO: Copy implementation
-        return currentCarbRatio
+        // Exact logic for tuning carb ratio from autotune/index.js (line 149-167)
+        guard !crData.isEmpty else { return currentCarbRatio }
+
+        var CRTotalCarbs = 0.0
+        var CRTotalInsulin = 0.0
+
+        for CRDatum in crData {
+            if CRDatum.CRInsulinTotal > 0 {
+                CRTotalCarbs += CRDatum.CRCarbs
+                CRTotalInsulin += CRDatum.CRInsulinTotal
+            }
+        }
+
+        guard CRTotalInsulin > 0 else { return currentCarbRatio }
+
+        let totalCR = round(CRTotalCarbs / CRTotalInsulin * 1000) / 1000
+        debug(.openAPS, "📊 CRTotalCarbs: \(CRTotalCarbs), CRTotalInsulin: \(CRTotalInsulin), totalCR: \(totalCR)")
+
+        // Only adjust by 20% (line 424 in autotune/index.js)
+        let newCR = (0.8 * currentCarbRatio) + (0.2 * totalCR)
+
+        // Safety limits (line 409-433)
+        let maxCR = min(150.0, currentCarbRatio * 1.2) // autotune max
+        let minCR = max(3.0, currentCarbRatio * 0.7) // autotune min
+
+        return max(minCR, min(maxCR, round(newCR * 1000) / 1000))
     }
     
     /// Tune insulin sensitivity
@@ -162,9 +185,52 @@ extension SwiftOpenAPSAlgorithms {
         isfData: [AutotuneGlucoseEntry],
         currentISF: InsulinSensitivities
     ) -> InsulinSensitivities {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 452-502
-        // TODO: Copy implementation
-        return currentISF
+        // Exact logic for tuning ISF from autotune/index.js (line 446-529)
+        guard isfData.count >= 10 else {
+            debug(.openAPS, "📊 Only found \(isfData.count) ISF data points, leaving ISF unchanged")
+            return currentISF
+        }
+
+        // Calculate median ratios (line 458-468)
+        var ratios: [Double] = []
+        for entry in isfData {
+            let deviation = entry.deviation
+            let BGI = entry.BGI
+            let ratio = 1.0 + deviation / BGI
+            ratios.append(ratio)
+        }
+
+        ratios.sort()
+        let p50ratios = round(percentile(ratios, 0.50) * 1000) / 1000
+
+        let currentSens = Double(currentISF.sensitivities.first?.sensitivity ?? 50.0)
+        let fullNewISF = currentSens * p50ratios
+
+        // Apply 20% of adjustment (line 509)
+        let newISF = (0.8 * currentSens) + (0.2 * fullNewISF)
+
+        // Safety limits
+        let maxISF = currentSens * 1.2
+        let minISF = currentSens * 0.7
+        let limitedISF = max(minISF, min(maxISF, round(newISF * 1000) / 1000))
+
+        debug(.openAPS, "📊 Old ISF: \(currentSens), fullNewISF: \(fullNewISF), newISF: \(limitedISF)")
+
+        // Create new ISF profile
+        var newSensitivities = currentISF.sensitivities
+        for i in 0 ..< newSensitivities.count {
+            newSensitivities[i] = InsulinSensitivityEntry(
+                sensitivity: Decimal(limitedISF),
+                offset: newSensitivities[i].offset,
+                start: newSensitivities[i].start
+            )
+        }
+
+        return InsulinSensitivities(
+            units: currentISF.units,
+            userPrefferedUnits: currentISF.userPrefferedUnits,
+            sensitivities: newSensitivities
+        )
     }
     
     /// Tune basal profile
@@ -172,9 +238,99 @@ extension SwiftOpenAPSAlgorithms {
         basalData: [AutotuneGlucoseEntry],
         currentBasal: [BasalProfileEntry]
     ) -> [BasalProfileEntry] {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 504-601
-        // TODO: Copy implementation
-        return currentBasal
+        // Exact logic for tuning basal profile from autotune/index.js (line 211-266)
+        guard !basalData.isEmpty else { return currentBasal }
+
+        var newHourlyBasalProfile = currentBasal
+
+        // Convert to hourly if needed (line 171-205)
+        var hourlyBasalProfile: [BasalProfileEntry] = []
+        for i in 0 ..< 24 {
+            for basal in currentBasal {
+                if (basal.minutes ?? 0) <= i * 60 {
+                    hourlyBasalProfile.append(BasalProfileEntry(
+                        start: String(format: "%02d:00:00", i),
+                        minutes: i * 60,
+                        rate: basal.rate
+                    ))
+                    break
+                }
+            }
+        }
+
+        // Look at net deviations for each hour (line 211-266)
+        for hour in 0 ..< 24 {
+            var deviations = 0.0
+            var dataPoints = 0
+
+            for entry in basalData {
+                if let bgDate = ISO8601DateFormatter().date(from: entry.dateString) {
+                    let bgHour = Calendar.current.component(.hour, from: bgDate)
+                    if hour == bgHour {
+                        deviations += entry.deviation
+                        dataPoints += 1
+                    }
+                }
+            }
+
+            guard dataPoints > 0 else { continue }
+
+            deviations = round(deviations * 1000) / 1000
+            debug(.openAPS, "📊 Hour \(hour) total deviations: \(deviations) mg/dL from \(dataPoints) points")
+
+            // Calculate basal adjustment needed (line 236-237)
+            let currentSens = 50.0 // Will get from profile
+            let basalNeeded = 0.2 * deviations / currentSens
+            let roundedBasalNeeded = round(basalNeeded * 100) / 100
+
+            debug(.openAPS, "📊 Hour \(hour) basal adjustment needed: \(roundedBasalNeeded) U/hr")
+
+            // Apply adjustment to previous 3 hours (line 240-265)
+            if basalNeeded > 0 {
+                for offset in -3 ..< 0 {
+                    var offsetHour = hour + offset
+                    if offsetHour < 0 { offsetHour += 24 }
+
+                    if offsetHour < newHourlyBasalProfile.count {
+                        let currentRate = Double(newHourlyBasalProfile[offsetHour].rate)
+                        let newRate = currentRate + basalNeeded / 3.0
+                        newHourlyBasalProfile[offsetHour] = BasalProfileEntry(
+                            start: newHourlyBasalProfile[offsetHour].start,
+                            minutes: newHourlyBasalProfile[offsetHour].minutes,
+                            rate: Decimal(round(newRate * 1000) / 1000)
+                        )
+                    }
+                }
+            } else if basalNeeded < 0 {
+                // Calculate proportional reduction (line 250-265)
+                var threeHourBasal = 0.0
+                for offset in -3 ..< 0 {
+                    var offsetHour = hour + offset
+                    if offsetHour < 0 { offsetHour += 24 }
+                    if offsetHour < newHourlyBasalProfile.count {
+                        threeHourBasal += Double(newHourlyBasalProfile[offsetHour].rate)
+                    }
+                }
+
+                let adjustmentRatio = 1.0 + basalNeeded / threeHourBasal
+
+                for offset in -3 ..< 0 {
+                    var offsetHour = hour + offset
+                    if offsetHour < 0 { offsetHour += 24 }
+                    if offsetHour < newHourlyBasalProfile.count {
+                        let currentRate = Double(newHourlyBasalProfile[offsetHour].rate)
+                        let newRate = currentRate * adjustmentRatio
+                        newHourlyBasalProfile[offsetHour] = BasalProfileEntry(
+                            start: newHourlyBasalProfile[offsetHour].start,
+                            minutes: newHourlyBasalProfile[offsetHour].minutes,
+                            rate: Decimal(round(newRate * 1000) / 1000)
+                        )
+                    }
+                }
+            }
+        }
+
+        return newHourlyBasalProfile
     }
     
     // MARK: - Optimization Functions (from lib/autotune/index.js)
@@ -193,9 +349,64 @@ extension SwiftOpenAPSAlgorithms {
         diaDeviations: [DiaDeviation],
         currentDIA: Double
     ) -> Double {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 612-674
-        // TODO: Copy implementation
-        return currentDIA
+        // Logic from autotune/index.js (line 60-99)
+        guard diaDeviations.count >= 3 else { return currentDIA }
+
+        let currentIndex = 2 // Middle value
+        let currentMeanDev = diaDeviations[currentIndex].meanDeviation
+        let currentRMSDev = diaDeviations[currentIndex].RMSDeviation
+
+        var minMeanDeviations = 1_000_000.0
+        var minRMSDeviations = 1_000_000.0
+        var meanBest = 2
+        var RMSBest = 2
+
+        for i in 0 ..< diaDeviations.count {
+            let meanDev = diaDeviations[i].meanDeviation
+            let rmsDev = diaDeviations[i].RMSDeviation
+
+            if meanDev < minMeanDeviations {
+                minMeanDeviations = round(meanDev * 1000) / 1000
+                meanBest = i
+            }
+            if rmsDev < minRMSDeviations {
+                minRMSDeviations = round(rmsDev * 1000) / 1000
+                RMSBest = i
+            }
+        }
+
+        debug(.openAPS, "📊 Best insulinEndTime for meanDeviations: \(diaDeviations[meanBest].dia) hours")
+        debug(.openAPS, "📊 Best insulinEndTime for RMSDeviations: \(diaDeviations[RMSBest].dia) hours")
+
+        var newDIA = currentDIA
+
+        if meanBest < 2, RMSBest < 2 {
+            if diaDeviations[1].meanDeviation < currentMeanDev * 0.99,
+               diaDeviations[1].RMSDeviation < currentRMSDev * 0.99
+            {
+                newDIA = diaDeviations[1].dia
+            }
+        } else if meanBest > 2, RMSBest > 2 {
+            if diaDeviations[3].meanDeviation < currentMeanDev * 0.99,
+               diaDeviations[3].RMSDeviation < currentRMSDev * 0.99
+            {
+                newDIA = diaDeviations[3].dia
+            }
+        }
+
+        // Safety limit (line 90-93)
+        if newDIA > 12 {
+            debug(.openAPS, "📊 insulinEndTime maximum is 12h: not raising further")
+            newDIA = 12
+        }
+
+        if newDIA != currentDIA {
+            debug(.openAPS, "📊 Adjusting insulinEndTime from \(currentDIA) to \(newDIA) hours")
+        } else {
+            debug(.openAPS, "📊 Leaving insulinEndTime unchanged at \(currentDIA) hours")
+        }
+
+        return newDIA
     }
     
     /// Optimize insulin peak time
@@ -203,9 +414,58 @@ extension SwiftOpenAPSAlgorithms {
         peakDeviations: [PeakDeviation],
         currentPeakTime: Double
     ) -> Double {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 676-732
-        // TODO: Copy implementation
-        return currentPeakTime
+        // Logic from autotune/index.js (line 102-139)
+        guard peakDeviations.count >= 3 else { return currentPeakTime }
+
+        let currentIndex = 2 // Middle value
+        let currentMeanDev = peakDeviations[currentIndex].meanDeviation
+        let currentRMSDev = peakDeviations[currentIndex].RMSDeviation
+
+        var minMeanDeviations = 1_000_000.0
+        var minRMSDeviations = 1_000_000.0
+        var meanBest = 2
+        var RMSBest = 2
+
+        for i in 0 ..< peakDeviations.count {
+            let meanDev = peakDeviations[i].meanDeviation
+            let rmsDev = peakDeviations[i].RMSDeviation
+
+            if meanDev < minMeanDeviations {
+                minMeanDeviations = round(meanDev * 1000) / 1000
+                meanBest = i
+            }
+            if rmsDev < minRMSDeviations {
+                minRMSDeviations = round(rmsDev * 1000) / 1000
+                RMSBest = i
+            }
+        }
+
+        debug(.openAPS, "📊 Best insulinPeakTime for meanDeviations: \(peakDeviations[meanBest].peak) minutes")
+        debug(.openAPS, "📊 Best insulinPeakTime for RMSDeviations: \(peakDeviations[RMSBest].peak) minutes")
+
+        var newPeak = currentPeakTime
+
+        if meanBest < 2, RMSBest < 2 {
+            if peakDeviations[1].meanDeviation < currentMeanDev * 0.99,
+               peakDeviations[1].RMSDeviation < currentRMSDev * 0.99
+            {
+                newPeak = peakDeviations[1].peak
+            }
+        } else if meanBest > 2, RMSBest > 2 {
+            if peakDeviations[3].meanDeviation < currentMeanDev * 0.99,
+               peakDeviations[3].RMSDeviation < currentRMSDev * 0.99
+            {
+                newPeak = peakDeviations[3].peak
+            }
+        }
+
+        if newPeak != currentPeakTime {
+            debug(.openAPS, "📊 Adjusting insulinPeakTime from \(currentPeakTime) to \(newPeak) minutes")
+        } else {
+            debug(.openAPS, "📊 Leaving insulinPeakTime unchanged at \(currentPeakTime)")
+        }
+
+        return newPeak
     }
     
     // MARK: - Helper Functions
