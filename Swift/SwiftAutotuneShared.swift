@@ -157,3 +157,12 @@ extension SwiftOpenAPSAlgorithms {
         }
     }
 }
+
+// MARK: - Extensions for compatibility
+
+extension SwiftOpenAPSAlgorithms.ProfileResult {
+    var min5mCarbimpact_autotune: Double {
+        // Minimum carb impact per 5 minutes for autotune
+        8.0 // Default from oref0: 8 mg/dL/5m
+    }
+}
