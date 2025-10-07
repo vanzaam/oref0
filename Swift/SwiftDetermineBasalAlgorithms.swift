@@ -831,11 +831,20 @@ extension SwiftOpenAPSAlgorithms {
             enableSMB = false
         }
 
+        // ТОЧНАЯ портация строк 1056-1069 из JS - ПЕРЕД SMB logic!
+        // insulinReq is the additional insulin required to get minPredBG down to target_bg (строка 1056-1058)
+        var insulinReq = round((min(predictionArrays.minPredBG, eventualBG) - targetBG) / sensitivity, digits: 2)
+        // if that would put us over max_iob, then reduce accordingly (строка 1059-1063)
+        if insulinReq > maxIOB - iob.iob {
+            reason += "max_iob \(maxIOB), "
+            insulinReq = maxIOB - iob.iob
+        }
+        // Round insulinReq (строка 1068-1069)
+        insulinReq = round(insulinReq, digits: 3)
+        
         // ТОЧНАЯ SMB calculation logic из оригинала (строка 1076-1155)
         // only allow microboluses with COB or low temp targets, or within DIA hours of a bolus
         if inputs.microBolusAllowed && enableSMB && glucose.glucose > threshold {
-            // Расчет insulinReq (должен быть определен выше в полной портации)
-            let insulinReq = (glucose.glucose - targetBG) / sensitivity
             
             // never bolus more than maxSMBBasalMinutes worth of basal (строка 1077-1095)
             let mealInsulinReq = round((meal?.mealCOB ?? 0) / profile.carbRatioValue, digits: 3)
