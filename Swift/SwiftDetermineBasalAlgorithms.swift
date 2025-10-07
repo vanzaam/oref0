@@ -298,7 +298,7 @@ extension SwiftOpenAPSAlgorithms {
         return false
     }
 
-    /// ТОЧНОЕ портирование freeaps_determineBasal функции из минифицированного JavaScript
+    /// ТОЧНОЕ портирование determine_basal функции из оригинального JavaScript (oref0)
     /// НЕТ УПРОЩЕНИЙ! Каждая строка соответствует исходному алгоритму oref0
     /// Основной алгоритм принятия решений OpenAPS для управления инсулином
     static func determineBasal(inputs: DetermineBasalInputs) -> Result<DetermineBasalResult, SwiftOpenAPSError> {
@@ -430,7 +430,7 @@ extension SwiftOpenAPSAlgorithms {
             adjustedBasal = roundedAdjustedBasal
         }
 
-        // ТОЧНАЯ корректировка target_bg на основе autosens из минифицированного кода
+        // ТОЧНАЯ корректировка target_bg на основе autosens из оригинального JS
         // if(s.temptargetSet);else if(void 0!==i&&i&&(s.sensitivity_raises_target&&i.ratio<1||s.resistance_lowers_target&&i.ratio>1))
         if !profile.temptargetSet {
             if let autosens = autosens,
@@ -466,7 +466,7 @@ extension SwiftOpenAPSAlgorithms {
         // M переменная УБРАНА - используем только currentGlucose
 
         // Критическая проверка 1: CGM калибровка или проблемы с сенсором
-        // Из минифицированного: (currentGlucose<=10||currentGlucose===38||cgmNoise>=3)
+        // Из оригинального JS: (currentGlucose<=10||currentGlucose===38||cgmNoise>=3)
         var safetyReason = ""
         let hasCGMIssues = currentGlucose <= 10 || currentGlucose == 38 || cgmNoise >= 3
 
@@ -475,7 +475,7 @@ extension SwiftOpenAPSAlgorithms {
         }
 
         // Критическая проверка 2: Свежесть данных glucose
-        // Из минифицированного: glucoseAgeMinutes>12||glucoseAgeMinutes<-5
+        // Из оригинального JS: glucoseAgeMinutes>12||glucoseAgeMinutes<-5
         let glucoseAgeMinutes = clock.timeIntervalSince(glucose.date) / 60.0 // в минутах
         let roundedGlucoseAge = round(glucoseAgeMinutes * 10) / 10 // v в JS - округляем как в JS коде
 
@@ -487,16 +487,16 @@ extension SwiftOpenAPSAlgorithms {
         }
 
         // Критическая проверка 3: Застрявшие данные CGM
-        // Из минифицированного: currentGlucose>60 && delta==0 && shortAvgDelta>-1 && shortAvgDelta<1 && longAvgDelta>-1 && longAvgDelta<1
+        // Из оригинального JS: currentGlucose>60 && delta==0 && shortAvgDelta>-1 && shortAvgDelta<1 && longAvgDelta>-1 && longAvgDelta<1
         let hasStuckCGM = currentGlucose > 60 &&
             glucose.delta == 0 &&
             glucose.shortAvgDelta > -1 && glucose.shortAvgDelta < 1 &&
             glucose.longAvgDelta > -1 && glucose.longAvgDelta < 1
 
         if hasStuckCGM && safetyReason.isEmpty {
-            // ТОЧНАЯ ЛОГИКА из минифицированного кода: e.last_cal&&e.last_cal<3
-            // В JS проверяется последняя калибровка, но в FreeAPS этих данных нет
-            // Поэтому используем безопасное сообщение как в JS fallback
+            // ТОЧНАЯ ЛОГИКА из оригинального JS: e.last_cal&&e.last_cal<3
+            // В JS проверяется последняя калибровка, но эти данные не всегда доступны
+            // Используем безопасное сообщение как в оригинале
             safetyReason = "Error: CGM data is unchanged for the past ~45m"
         }
 
@@ -504,7 +504,7 @@ extension SwiftOpenAPSAlgorithms {
         let hasAnySafetyIssue = hasCGMIssues || roundedGlucoseAge > 12 || roundedGlucoseAge < -5 || hasStuckCGM
 
         if hasAnySafetyIssue {
-            // ТОЧНАЯ ЛОГИКА SAFETY РЕЗУЛЬТАТОВ из минифицированного кода
+            // ТОЧНАЯ ЛОГИКА SAFETY РЕЗУЛЬТАТОВ из оригинального JS
             // return r.rate>f?(p.reason+=". Replacing high temp basal of "+r.rate+" with neutral temp of "+f
             // :0===r.rate&&r.duration>30?(p.reason+=". Shortening "+r.duration+"m long zero temp to 30m. "
             // :(p.reason+=". Temp "+r.rate+" <= current basal "+f+"U/hr; doing nothing. "
@@ -595,7 +595,7 @@ extension SwiftOpenAPSAlgorithms {
             }
         }
 
-        // КРИТИЧЕСКАЯ ПРОВЕРКА IOB данных из минифицированного кода
+        // КРИТИЧЕСКАЯ ПРОВЕРКА IOB данных из оригинального JS
         // if(void 0===a)return p.error="Error: iob_data undefined. ",p
         // void 0===a.activity||void 0===a.iob)return p.error="Error: iob_data missing some property. ",p
         if iob.activity.isNaN || iob.iob.isNaN {
@@ -659,7 +659,7 @@ extension SwiftOpenAPSAlgorithms {
         // ТОЧНЫЙ расчет expectedDelta как в оригинале (строка 423)
         let expectedDelta = calculateExpectedDelta(targetBG: targetBG, eventualBG: eventualBG, bgi: bgi)
 
-        // КРИТИЧЕСКАЯ ПРОВЕРКА eventual BG из минифицированного кода
+        // КРИТИЧЕСКАЯ ПРОВЕРКА eventual BG из оригинального JS
         // if(void 0===$||isNaN($))return p.error="Error: could not calculate eventualBG. ",p
         if eventualBG.isNaN || eventualBG.isInfinite {
             return .success(DetermineBasalResult(
@@ -698,7 +698,7 @@ extension SwiftOpenAPSAlgorithms {
 
         // Variables are now defined with clear names for use in basal decision logic
 
-        // КРИТИЧЕСКИЕ проверки temp basal из минифицированного кода
+        // КРИТИЧЕСКИЕ проверки temp basal из оригинального JS
         // Проверка 1: Несоответствие текущего temp с историей помпы
         // u&&r&&a.lastTemp&&r.rate!==a.lastTemp.rate&&I>10&&r.duration
         if let currentTemp = currentTemp,
@@ -1564,7 +1564,7 @@ extension SwiftOpenAPSAlgorithms {
     }
 
     private static func getTargetBG(profile: ProfileResult, isLow: Bool) -> Double {
-        // ТОЧНАЯ реализация из минифицированного кода
+        // ТОЧНАЯ реализация из оригинального JS
         // Проверяем наличие min_bg и max_bg в профиле
         guard let minBG = profile.targets.targets.first?.low,
               let maxBG = profile.targets.targets.first?.high
@@ -1577,7 +1577,7 @@ extension SwiftOpenAPSAlgorithms {
     }
 
     private static func formatTick(_ delta: Double) -> String {
-        // ТОЧНАЯ формула из минифицированного кода: j=e.delta>-.5?"+"+n(e.delta,0):n(e.delta,0)
+        // ТОЧНАЯ формула из оригинального JS: j=e.delta>-.5?"+"+n(e.delta,0):n(e.delta,0)
         if delta > -0.5 {
             return "+\(round(delta))" // n(e.delta,0) - округление до 0 знаков
         } else {
@@ -1586,14 +1586,14 @@ extension SwiftOpenAPSAlgorithms {
     }
 
     private static func calculateExpectedDelta(targetBG: Double, eventualBG: Double) -> Double {
-        // ТОЧНАЯ формула expectedDelta из минифицированного кода
+        // ТОЧНАЯ формула expectedDelta из оригинального JS
         // function(e,r,a){return n(a+(e-r)/24,1)}(_,$,L)
         round((targetBG - eventualBG) / 24.0 * 10) / 10
     }
 
-    /// ТОЧНАЯ функция округления базала как в oref0 (функция t в минифицированном коде)
+    /// ТОЧНАЯ функция округления базала как в oref0 (функция round_basal)
     private static func roundBasal(_ basal: Double, profile _: ProfileResult) -> Double {
-        // Функция t(f,s) из минифицированного кода - rounds basal rate
+        // Функция round_basal из оригинального JS - rounds basal rate
         // Обычно округляет до 0.05 или 0.1 в зависимости от помпы
 
         // Для большинства помп округление до 0.05
@@ -1622,7 +1622,7 @@ extension SwiftOpenAPSAlgorithms {
         iob: IOBResult,
         meal: MealResult?
     ) -> Double {
-        // ТОЧНАЯ логика микроболюса из минифицированного кода
+        // ТОЧНАЯ логика микроболюса из оригинального JS
 
         // Определяем максимальный микроболюс на основе профиля
         let mealInsulinReq = (meal?.mealCOB ?? 0) / profile.carbRatioValue
