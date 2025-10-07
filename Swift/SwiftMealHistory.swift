@@ -203,28 +203,13 @@ extension SwiftOpenAPSAlgorithms {
 
 // MARK: - PumpHistoryEvent Extensions
 
-extension PumpHistoryEvent {
-    /// Helper to get type name for Care Portal entries
-    var typeName: String? {
-        // This should be populated from the actual event data
-        // For now return nil, will be implemented when full structure is known
-        return nil
-    }
-    
-    /// Helper to get carbInput for BolusWizard
-    var carbInput: Int? {
-        // This should be populated from the actual event data
-        return nil
-    }
-    
-    /// Helper to check if entered by xdrip
-    var enteredBy: String? {
-        // This should be populated from the actual event data
-        return nil
-    }
-    
-    /// Helper for insulin amount in general entries
-    var insulin: Double? {
-        return amount
-    }
-}
+// NOTE: PumpHistoryEvent должен уже иметь все необходимые свойства:
+// - eventType: String? (для Care Portal entries)
+// - enteredBy: String? (для xdrip/HAPP entries)
+// - carbInput: Int? (для BolusWizard)
+// - insulin/amount: Double? (для болюсов)
+// - carbs: Int? (для углеводов)
+// - createdAt: Date? (timestamp для NS entries)
+//
+// Если какие-то свойства отсутствуют, их нужно добавить в определение
+// PumpHistoryEvent в основном коде FreeAPS X, а не создавать заглушки здесь!
