@@ -14,6 +14,8 @@ extension SwiftOpenAPSAlgorithms {
         let profile: ProfileResult
         let carbHistory: [CarbsEntry]
         let tempTargets: TempTargets?
+        let retrospective: Bool? // lines 25-30
+        let deviations: Int? // line 344 (lookback, default 96)
     }
 
     struct AutosensResult {
@@ -51,7 +53,21 @@ extension SwiftOpenAPSAlgorithms {
         let activity: Double
         let carbImpact: Double
         let absorbed: Double
-        let type: String // "csf", "uam", "basal", etc.
+        let type: String // "csf", "uam", "non-meal"
+    }
+    
+    /// Bucketed glucose data (lines 72-119)
+    struct BucketedGlucose {
+        var date: Date
+        var glucose: Double
+        var dateTime: Double // milliseconds
+        var mealCarbs: Double? // для tracking
+    }
+    
+    /// Meal input (из find_meals)
+    struct MealInput {
+        let timestamp: String
+        let carbs: Double
     }
 
     /// Портирование freeaps_autosens функции из минифицированного JavaScript
@@ -435,5 +451,22 @@ extension SwiftOpenAPSAlgorithms {
         }
         
         return nil
+    }
+    
+    // MARK: - Percentile Function
+    
+    /// Портирование percentile() из lib/percentile.js
+    /// Возвращает значение на заданном процентиле отсортированного массива
+    private static func percentile(_ sortedArray: [Double], _ percentile: Double) -> Double {
+        guard !sortedArray.isEmpty else { return 0 }
+        guard percentile >= 0 && percentile <= 1 else { return 0 }
+        
+        // Line from percentile.js
+        let index = Int(Double(sortedArray.count - 1) * percentile)
+        
+        // Ensure index is in bounds
+        let safeIndex = max(0, min(sortedArray.count - 1, index))
+        
+        return sortedArray[safeIndex]
     }
 }
