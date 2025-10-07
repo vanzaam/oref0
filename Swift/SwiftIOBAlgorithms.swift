@@ -63,11 +63,23 @@ final class SwiftOpenAPSAlgorithms {
         var lastBolusTime: Date?
         var lastTemp: TempBasal?
 
-        // Фильтруем события за последние 6 часов (как в оригинальном алгоритме)
-        let sixHoursAgo = currentTime.addingTimeInterval(-6 * 3600)
+        // 🚨 ИСПРАВЛЕНО 1: force minimum DIA of 3h (lib/iob/total.js lines 24-27)
+        var dia = inputs.profile.dia
+        if dia < 3.0 {
+            dia = 3.0
+        }
+        
+        // 🚨 ИСПРАВЛЕНО 2: Force minimum of 5 hour DIA for exponential curves (lib/iob/total.js lines 60-63)
+        let curve = inputs.profile.insulinActionCurve ?? "rapid-acting"
+        if curve != "bilinear" && dia < 5.0 {
+            dia = 5.0
+        }
+
+        // 🚨 ИСПРАВЛЕНО 3: Фильтруем по DIA, а не по фиксированным 6 часам (lib/iob/total.js line 69)
+        let diaAgo = currentTime.addingTimeInterval(-dia * 3600)
         let recentEvents = inputs.pumpHistory.filter { event in
             let eventDate = event.timestamp
-            return eventDate >= sixHoursAgo && eventDate <= currentTime
+            return eventDate >= diaAgo && eventDate <= currentTime
         }
 
         // Обрабатываем каждое событие помпы
@@ -129,12 +141,13 @@ final class SwiftOpenAPSAlgorithms {
 
         totalIOB = bolusIOB + basalIOB
 
+        // 🚨 ИСПРАВЛЕНО 4: Округление результатов как в JS (lib/iob/total.js lines 95-100)
         return IOBResult(
-            iob: totalIOB,
-            activity: totalActivity,
-            basaliob: basalIOB,
-            netBasalInsulin: netBasalInsulin,
-            bolusiob: bolusIOB,
+            iob: round(totalIOB * 1000) / 1000,
+            activity: round(totalActivity * 10000) / 10000,
+            basaliob: round(basalIOB * 1000) / 1000,
+            netBasalInsulin: round(netBasalInsulin * 1000) / 1000,
+            bolusiob: round(bolusIOB * 1000) / 1000,
             hightempInsulin: hightempInsulin,
             lastBolusTime: lastBolusTime,
             lastTemp: lastTemp,
