@@ -78,6 +78,13 @@ extension SwiftOpenAPSAlgorithms {
         let duration: Int?
         let units: Double? // Для микроболюсов
         let carbsReq: Double?
+        
+        // ✅ НОВЫЕ ПОЛЯ из determine-basal.js для полной совместимости (строка 806-810)
+        // Эти значения уже сконвертированы через convertBG перед созданием результата
+        let BGI: Double?  // Blood Glucose Impact (сконвертировано)
+        let deviation: Double?  // Отклонение от прогноза (сконвертировано)
+        let ISF: Double?  // Insulin Sensitivity Factor (сконвертировано)
+        let targetBG: Double?  // Целевой BG (сконвертировано)
 
         // 🚀 КРИТИЧЕСКАЯ ДОБАВКА: Prediction arrays для рисования прогнозов!
         let predBGs: [String: [Double]] // Contains IOB, COB, UAM, ZT arrays
@@ -101,6 +108,20 @@ extension SwiftOpenAPSAlgorithms {
             let carbsReqString = carbsReq.map { String(format: "%.1f", $0) } ?? "null"
             let sensRatioString = sensitivityRatio.map { String(format: "%.2f", $0) } ?? "null"
             let reservoirString = reservoir.map { String(format: "%.1f", $0) } ?? "null"
+            
+            // ✅ НОВЫЕ ПОЛЯ: BGI, deviation, ISF, targetBG (уже сконвертированы)
+            let BGIString = BGI.map { 
+                profile.outUnits == "mmol/L" ? String(format: "%.1f", $0) : String(format: "%.1f", $0)
+            } ?? "null"
+            let deviationString = deviation.map { 
+                profile.outUnits == "mmol/L" ? String(format: "%.1f", $0) : String(format: "%.1f", $0)
+            } ?? "null"
+            let ISFString = ISF.map { 
+                profile.outUnits == "mmol/L" ? String(format: "%.1f", $0) : String(format: "%.1f", $0)
+            } ?? "null"
+            let targetBGString = targetBG.map { 
+                profile.outUnits == "mmol/L" ? String(format: "%.1f", $0) : String(Int($0.rounded()))
+            } ?? "null"
 
             // ✅ КРИТИЧЕСКАЯ КОНВЕРТАЦИЯ: Конвертируем все значения в prediction arrays
             let predBGsJSON = predBGs.map { key, values in
@@ -130,6 +151,10 @@ extension SwiftOpenAPSAlgorithms {
                 "duration": \(durationString),
                 "units": \(unitsString),
                 "carbsReq": \(carbsReqString),
+                "BGI": \(BGIString),
+                "deviation": \(deviationString),
+                "ISF": \(ISFString),
+                "target_bg": \(targetBGString),
                 "predBGs": {\(predBGsJSON)}
             }
             """
@@ -206,6 +231,7 @@ extension SwiftOpenAPSAlgorithms {
                 duration: nil,
                 units: nil,
                 carbsReq: nil,
+                BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
                 predBGs: emptyPredictionArrays(bg: glucose.glucose),
                 profile: profile
             ))
@@ -395,7 +421,9 @@ extension SwiftOpenAPSAlgorithms {
                         rate: adjustedBasal,
                         duration: 30,
                         units: nil,
-                        carbsReq: nil, predBGs: emptyPredictionArrays(bg: currentGlucose),
+                        carbsReq: nil,
+                        BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                        predBGs: emptyPredictionArrays(bg: currentGlucose),
                         profile: profile
                     ))
                 } else if currentTemp.rate == 0, currentTemp.duration > 30 {
@@ -413,7 +441,9 @@ extension SwiftOpenAPSAlgorithms {
                         rate: 0,
                         duration: 30,
                         units: nil,
-                        carbsReq: nil, predBGs: emptyPredictionArrays(bg: currentGlucose),
+                        carbsReq: nil,
+                        BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                        predBGs: emptyPredictionArrays(bg: currentGlucose),
                         profile: profile
                     ))
                 } else {
@@ -431,7 +461,9 @@ extension SwiftOpenAPSAlgorithms {
                         rate: nil,
                         duration: nil,
                         units: nil,
-                        carbsReq: nil, predBGs: emptyPredictionArrays(bg: currentGlucose),
+                        carbsReq: nil,
+                        BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                        predBGs: emptyPredictionArrays(bg: currentGlucose),
                         profile: profile
                     ))
                 }
@@ -450,7 +482,9 @@ extension SwiftOpenAPSAlgorithms {
                     rate: nil,
                     duration: nil,
                     units: nil,
-                    carbsReq: nil, predBGs: emptyPredictionArrays(bg: currentGlucose),
+                    carbsReq: nil,
+                    BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                    predBGs: emptyPredictionArrays(bg: currentGlucose),
                     profile: profile
                 ))
             }
@@ -473,7 +507,9 @@ extension SwiftOpenAPSAlgorithms {
                 rate: nil,
                 duration: nil,
                 units: nil,
-                carbsReq: nil, predBGs: emptyPredictionArrays(bg: currentGlucose),
+                carbsReq: nil,
+                BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                predBGs: emptyPredictionArrays(bg: currentGlucose),
                 profile: profile
             ))
         }
@@ -531,7 +567,9 @@ extension SwiftOpenAPSAlgorithms {
                 rate: nil,
                 duration: nil,
                 units: nil,
-                carbsReq: nil, predBGs: emptyPredictionArrays(bg: currentGlucose),
+                carbsReq: nil,
+                BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                predBGs: emptyPredictionArrays(bg: currentGlucose),
                 profile: profile
             ))
         }
@@ -588,7 +626,9 @@ extension SwiftOpenAPSAlgorithms {
                     rate: nil,
                     duration: nil,
                     units: nil,
-                    carbsReq: nil, predBGs: emptyPredictionArrays(bg: currentGlucose),
+                    carbsReq: nil,
+                    BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                    predBGs: emptyPredictionArrays(bg: currentGlucose),
                     profile: profile
                 ))
             }
@@ -618,7 +658,9 @@ extension SwiftOpenAPSAlgorithms {
                     rate: nil,
                     duration: nil,
                     units: nil,
-                    carbsReq: nil, predBGs: emptyPredictionArrays(bg: currentGlucose),
+                    carbsReq: nil,
+                    BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                    predBGs: emptyPredictionArrays(bg: currentGlucose),
                     profile: profile
                 ))
             }
@@ -665,7 +707,10 @@ extension SwiftOpenAPSAlgorithms {
             minDelta: minDelta,
             maxDelta: maxDelta,
             profile: profile,
-            predictionArrays: predictionArrays // 🚀 НОВОЕ: prediction arrays для графиков!
+            predictionArrays: predictionArrays, // 🚀 НОВОЕ: prediction arrays для графиков!
+            bgi: bgi,  // ✅ НОВОЕ: для JSON output
+            deviation: deviation,  // ✅ НОВОЕ: для JSON output
+            targetBGForOutput: targetBG  // ✅ НОВОЕ: для JSON output
         )
 
         return .success(basalDecisionResult)
@@ -680,7 +725,7 @@ extension SwiftOpenAPSAlgorithms {
         maxBG _: Double,
         targetBG: Double,
         iob _: IOBResult,
-        sensitivity _: Double,
+        sensitivity: Double,
         currentBasal: Double,
         maxIOB _: Double,
         currentTemp _: TempBasal?,
@@ -693,7 +738,10 @@ extension SwiftOpenAPSAlgorithms {
         minDelta _: Double,
         maxDelta _: Double,
         profile: ProfileResult,
-        predictionArrays: PredictionArrays // 🚀 НОВОЕ: prediction arrays!
+        predictionArrays: PredictionArrays, // 🚀 НОВОЕ: prediction arrays!
+        bgi: Double,  // ✅ НОВОЕ: для BGI поля в результате
+        deviation: Double,  // ✅ НОВОЕ: для deviation поля в результате
+        targetBGForOutput: Double  // ✅ НОВОЕ: для target_bg поля в результате
     ) -> DetermineBasalResult {
         // Создаем результат с prediction arrays
         createResultWithPredictions(
@@ -704,7 +752,11 @@ extension SwiftOpenAPSAlgorithms {
             deliverAt: deliverAt,
             sensitivityRatio: sensitivityRatio,
             predictionArrays: predictionArrays,
-            profile: profile
+            profile: profile,
+            bgi: bgi,
+            deviation: deviation,
+            sensitivity: sensitivity,
+            targetBGForOutput: targetBGForOutput
         )
     }
 
@@ -894,7 +946,9 @@ extension SwiftOpenAPSAlgorithms {
                     rate: currentBasal * 0.5, // Низкий temp на время микроболюса
                     duration: 30,
                     units: microbolus,
-                    carbsReq: nil, predBGs: emptyPredictionArrays(bg: currentBG),
+                    carbsReq: nil,
+                    BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                    predBGs: emptyPredictionArrays(bg: currentBG),
                     profile: profile
                 ))
             }
@@ -1111,8 +1165,18 @@ extension SwiftOpenAPSAlgorithms {
         deliverAt: Date,
         sensitivityRatio: Double?,
         predictionArrays: PredictionArrays,
-        profile: ProfileResult
+        profile: ProfileResult,
+        bgi: Double,
+        deviation: Double,
+        sensitivity: Double,
+        targetBGForOutput: Double
     ) -> DetermineBasalResult {
+        // ✅ КОНВЕРТИРУЕМ все BG-значения для результата (как в determine-basal.js:806-810)
+        let convertedBGI = SwiftOpenAPSAlgorithms.convertBG(bgi, profile: profile)
+        let convertedDeviation = SwiftOpenAPSAlgorithms.convertBG(deviation, profile: profile)
+        let convertedISF = SwiftOpenAPSAlgorithms.convertBG(sensitivity, profile: profile)
+        let convertedTargetBG = SwiftOpenAPSAlgorithms.convertBG(targetBGForOutput, profile: profile)
+        
         var reason = "BG: \(Int(currentBG)), "
         reason += "Target: \(Int(targetBG)), "
         reason += "EventualBG: \(Int(eventualBG)), "
@@ -1134,6 +1198,10 @@ extension SwiftOpenAPSAlgorithms {
                 duration: 30,
                 units: nil,
                 carbsReq: nil,
+                BGI: convertedBGI,
+                deviation: convertedDeviation,
+                ISF: convertedISF,
+                targetBG: convertedTargetBG,
                 predBGs: predictionArrays.predBGsDict, // 🚀 КРИТИЧНО: predBGs для графиков!
                 profile: profile
             )
@@ -1152,6 +1220,10 @@ extension SwiftOpenAPSAlgorithms {
                 duration: 30,
                 units: nil,
                 carbsReq: nil,
+                BGI: convertedBGI,
+                deviation: convertedDeviation,
+                ISF: convertedISF,
+                targetBG: convertedTargetBG,
                 predBGs: predictionArrays.predBGsDict, // 🚀 КРИТИЧНО: predBGs для графиков!
                 profile: profile
             )
@@ -1164,7 +1236,8 @@ extension SwiftOpenAPSAlgorithms {
         currentBasal: Double,
         bg: Double,
         tick: String,
-        deliverAt: Date
+        deliverAt: Date,
+        profile: ProfileResult
     ) -> Result<DetermineBasalResult, SwiftOpenAPSError> {
         if let temp = currentTemp, Double(temp.rate) > currentBasal {
             let result = DetermineBasalResult(
@@ -1180,7 +1253,10 @@ extension SwiftOpenAPSAlgorithms {
                 rate: currentBasal,
                 duration: 30,
                 units: nil,
-                carbsReq: nil, predBGs: emptyPredictionArrays(bg: bg)
+                carbsReq: nil,
+                BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                predBGs: emptyPredictionArrays(bg: bg),
+                profile: profile
             )
             return .success(result)
         } else {
@@ -1197,7 +1273,10 @@ extension SwiftOpenAPSAlgorithms {
                 rate: nil,
                 duration: nil,
                 units: nil,
-                carbsReq: nil, predBGs: emptyPredictionArrays(bg: bg)
+                carbsReq: nil,
+                BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+                predBGs: emptyPredictionArrays(bg: bg),
+                profile: profile
             )
             return .success(result)
         }
@@ -1224,7 +1303,9 @@ extension SwiftOpenAPSAlgorithms {
             rate: nil,
             duration: nil,
             units: nil,
-            carbsReq: nil, predBGs: emptyPredictionArrays(bg: bg),
+            carbsReq: nil,
+            BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+            predBGs: emptyPredictionArrays(bg: bg),
             profile: profile
         )
     }
@@ -1253,7 +1334,9 @@ extension SwiftOpenAPSAlgorithms {
             rate: rate,
             duration: duration,
             units: nil,
-            carbsReq: nil, predBGs: emptyPredictionArrays(bg: bg),
+            carbsReq: nil,
+            BGI: nil, deviation: nil, ISF: nil, targetBG: nil,
+            predBGs: emptyPredictionArrays(bg: bg),
             profile: profile
         )
     }
