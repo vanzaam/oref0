@@ -351,14 +351,57 @@ extension SwiftOpenAPSAlgorithms {
             }
         }
         
-        // TODO: Analyze deviations and calculate ratio (ЭТАП 10-11)
+        // ЭТАП 10: PERCENTILE ANALYSIS + RMS (lines 355-391)
+        
+        // Lines 358-366: Padding zeros if < 96 deviations
+        debug(.openAPS, "Using most recent \(deviations.count) deviations")
+        
+        if deviations.count < 96 {
+            // Line 360: Calculate padding
+            let pad = Int(round((1 - Double(deviations.count)/96) * 18))
+            debug(.openAPS, "Adding \(pad) more zero deviations")
+            // Line 362-365: Add zeros
+            for _ in 0..<pad {
+                deviations.append(0)
+            }
+        }
+        
+        // Lines 367-369: Sort arrays
+        avgDeltas.sort()
+        bgis.sort()
+        deviations.sort()
+        
+        // Lines 370-382: Find percentile crossover points (optional logging)
+        for i in stride(from: 0.9, through: 0.1, by: -0.01) {
+            if percentile(deviations, i + 0.01) >= 0 && percentile(deviations, i) < 0 {
+                let lessThanZero = Int(round(100 * i))
+                debug(.openAPS, "\(lessThanZero)% of non-meal deviations negative (>50% = sensitivity)")
+            }
+            if percentile(deviations, i + 0.01) > 0 && percentile(deviations, i) <= 0 {
+                let greaterThanZero = 100 - Int(round(100 * i))
+                debug(.openAPS, "\(greaterThanZero)% of non-meal deviations positive (>50% = resistance)")
+            }
+        }
+        
+        // Line 383-384: Get 50th percentile (median)
+        let pSensitive = percentile(deviations, 0.50)
+        let pResistant = percentile(deviations, 0.50) // Same as pSensitive
+        
+        // Lines 389-391: Calculate RMS deviation
+        let squareDeviations = deviations.reduce(0.0) { acc, dev in
+            return acc + dev * dev
+        }
+        let rmsDev = sqrt(squareDeviations / Double(deviations.count))
+        debug(.openAPS, "RMS deviation: \(String(format: "%.2f", rmsDev))")
+        
+        // TODO: ЭТАП 11 - Calculate ratio with correct formula
         // For now return placeholder
         let result = AutosensResult(
             ratio: 1.0,
-            deviation: 0,
+            deviation: pSensitive,
             pastSensitivity: "in progress",
             ratioLimit: "in progress",
-            sensResult: "ЭТАП 5 complete, ЭТАПЫ 6-11 pending",
+            sensResult: "ЭТАПЫ 1-10 complete, ЭТАП 11 pending",
             timestamp: Date()
         )
         return .success(result)
