@@ -694,21 +694,9 @@ extension SwiftOpenAPSAlgorithms {
             minBG = adjustedMinBG
             targetBG = adjustedTargetBG
             maxBG = adjustedMaxBG
-        } else if currentGlucose > maxBG, profile.advTargetAdjustments, !profile.temptargetSet {
-            // КРИТИЧЕСКАЯ ФУНКЦИЯ: Advanced target adjustments для высокой глюкозы с понятными названиями
-            // currentGlucose > maxBG && advTargetAdjustments && !temptargetSet
-            let advancedMinBG = round(max(80.0, minBG - (currentGlucose - minBG) / 3.0) * 100) / 100 // H в JS
-            let advancedTargetBG = round(max(80.0, targetBG - (currentGlucose - targetBG) / 3.0) * 100) / 100 // J в JS
-            let advancedMaxBG = round(max(80.0, maxBG - (currentGlucose - maxBG) / 3.0) * 100) / 100 // K в JS
-
-            // ВРЕМЕННО ОТКЛЮЧЕНО: advanced target adjustments требуют предварительного расчета eventualBG
-            // Эта логика будет добавлена после расчета eventualBG
-            debug(.openAPS, "📊 Advanced target adjustments: high BG detected (\(currentGlucose) > \(maxBG))")
-            debug(.openAPS, "📊 Will adjust targets after eventualBG calculation")
         }
 
-        // Сохраняем разминифицированные названия для передачи в makeBasalDecision
-        // (эти переменные уже определены выше с понятными названиями)
+        // Variables are now defined with clear names for use in basal decision logic
 
         // КРИТИЧЕСКИЕ проверки temp basal из минифицированного кода
         // Проверка 1: Несоответствие текущего temp с историей помпы
@@ -827,7 +815,7 @@ extension SwiftOpenAPSAlgorithms {
         
         if maxDelta > maxDeltaBGThreshold * glucose.glucose {
             debug(.openAPS, "maxDelta \(convertBG(maxDelta, profile: profile)) > \(100 * maxDeltaBGThreshold)% of BG \(convertBG(glucose.glucose, profile: profile)) - disabling SMB")
-            // rT.reason будет обновлен ниже
+            // rT.reason will be updated in core dosing logic
             enableSMB = false
         }
 
@@ -1219,7 +1207,7 @@ extension SwiftOpenAPSAlgorithms {
             }
         }
         
-        // calculate 30m high-temp required (строка 1054-1108) - уже портировано выше как insulinReq
+        // calculate 30m high-temp required (строка 1054-1108) - insulinReq already calculated above
         // rate required to deliver insulinReq more insulin over 30m (строка 1065-1069)
         var highTempRate = Double(adjustedBasal) + (2 * insulinReq)
         highTempRate = roundBasal(highTempRate, profile: profile)
@@ -1760,7 +1748,7 @@ extension SwiftOpenAPSAlgorithms {
             bg: bg,
             tick: tick,
             eventualBG: eventualBG,
-            insulinReq: 0, // Будет рассчитан выше
+            insulinReq: 0,
             reservoir: nil,
             deliverAt: deliverAt,
             sensitivityRatio: sensitivityRatio,
