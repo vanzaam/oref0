@@ -124,6 +124,7 @@ cp Swift/Autosens/* YourProject/Core/Algorithms/Autosens/
 
 | Файл | Описание |
 |------|----------|
+| **FREEAPS_BUNDLE_MAPPING.md** | ⭐ КРИТИЧЕСКИЙ! Mapping Swift → bundle/*.js (530 строк) |
 | **README.md** | Главный обзор проекта |
 | **INTEGRATION_GUIDE.md** | Полная инструкция интеграции (420 строк) |
 | **QUICK_START.md** | Быстрый старт за 30 минут (80 строк) |
