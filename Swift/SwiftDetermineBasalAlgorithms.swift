@@ -350,6 +350,10 @@ extension SwiftOpenAPSAlgorithms {
         maxBG = Double(firstTarget.high) // C в JS = max_bg
         targetBG = (minBG + maxBG) / 2 // _ в JS = target_bg = (s.min_bg+s.max_bg)/2
 
+        // ТОЧНОЕ определение threshold как в оригинале (строка 329)
+        // min_bg of 90 -> threshold of 65, 100 -> 70 110 -> 75, and 130 -> 85
+        let threshold = minBG - 0.5 * (minBG - 40)
+
         // РАЗМИНИФИЦИРОВАННАЯ логика sensitivity ratio с понятными названиями
         // O в JS = exercise_mode || high_temptarget_raises_sensitivity
         let exerciseOrHighTempRaisesSens = profile.exerciseMode || profile.highTemptargetRaisesSensitivity
@@ -744,6 +748,19 @@ extension SwiftOpenAPSAlgorithms {
         // Добавляем влияние углеводов (если есть meal данные)
         let mealAdjustedEventualBG = eventualBG
 
+        // ТОЧНЫЙ вызов enable_smb как в оригинале (строка 451-458)
+        var enableSMB = enableSMB(
+            profile: profile,
+            microBolusAllowed: inputs.microBolusAllowed,
+            mealData: meal,
+            bg: glucose.glucose,
+            targetBG: targetBG,
+            highBG: profile.enableSMBHighBGTarget
+        )
+
+        // enable UAM (if enabled in preferences) (строка 460-461)
+        let enableUAM = profile.enableUAM ?? false
+
         // 🚨 КРИТИЧЕСКАЯ ФУНКЦИЯ: Calculate prediction arrays как в оригинале (строка 442-657)
         let predictionArrays = calculatePredictionArrays(
             bg: glucose.glucose,
@@ -760,6 +777,24 @@ extension SwiftOpenAPSAlgorithms {
             .openAPS,
             "📊 Prediction arrays created: IOB=\(predictionArrays.IOBpredBGs.count), COB=\(predictionArrays.COBpredBGs.count), UAM=\(predictionArrays.UAMpredBGs.count), ZT=\(predictionArrays.ZTpredBGs.count)"
         )
+
+        // ТОЧНАЯ логика отключения SMB как в оригинале (строка 862-880)
+        // TODO: добавить проверку minGuardBG < threshold когда будет полная portation prediction arrays (строка 862-866)
+
+        // Disable SMB for sudden rises (строка 867-880)
+        // Added maxDelta_bg_threshold as a hidden preference and included a cap at 0.3 as a safety limit
+        let maxDeltaBGThreshold: Double
+        if let profileMaxDelta = profile.maxDeltaBGThreshold {
+            maxDeltaBGThreshold = min(profileMaxDelta, 0.3)
+        } else {
+            maxDeltaBGThreshold = 0.2
+        }
+        
+        if maxDelta > maxDeltaBGThreshold * glucose.glucose {
+            debug(.openAPS, "maxDelta \(convertBG(maxDelta, profile: profile)) > \(100 * maxDeltaBGThreshold)% of BG \(convertBG(glucose.glucose, profile: profile)) - disabling SMB")
+            // rT.reason будет обновлен ниже
+            enableSMB = false
+        }
 
         // Основная логика принятия решений с РАЗМИНИФИЦИРОВАННЫМИ переменными + prediction arrays
         let basalDecisionResult = makeBasalDecisionWithPredictions(
