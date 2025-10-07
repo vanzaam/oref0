@@ -978,51 +978,7 @@ extension SwiftOpenAPSAlgorithms {
         ))
     }
 
-    // MARK: - Core Decision Logic (с prediction arrays)
-
-    private static func makeBasalDecisionWithPredictions(
-        currentBG: Double,
-        eventualBG: Double,
-        minBG _: Double,
-        maxBG _: Double,
-        targetBG: Double,
-        iob _: IOBResult,
-        sensitivity: Double,
-        currentBasal: Double,
-        maxIOB _: Double,
-        currentTemp _: TempBasal?,
-        meal _: MealResult?,
-        microBolusAllowed _: Bool,
-        reservoir _: Reservoir?,
-        tick _: String,
-        deliverAt: Date,
-        sensitivityRatio: Double?,
-        minDelta _: Double,
-        maxDelta _: Double,
-        profile: ProfileResult,
-        predictionArrays: PredictionArrays, // 🚀 НОВОЕ: prediction arrays!
-        bgi: Double,  // ✅ НОВОЕ: для BGI поля в результате
-        deviation: Double,  // ✅ НОВОЕ: для deviation поля в результате
-        targetBGForOutput: Double  // ✅ НОВОЕ: для target_bg поля в результате
-    ) -> DetermineBasalResult {
-        // Создаем результат с prediction arrays
-        createResultWithPredictions(
-            currentBG: currentBG,
-            eventualBG: eventualBG,
-            targetBG: targetBG,
-            currentBasal: currentBasal,
-            deliverAt: deliverAt,
-            sensitivityRatio: sensitivityRatio,
-            predictionArrays: predictionArrays,
-            profile: profile,
-            bgi: bgi,
-            deviation: deviation,
-            sensitivity: sensitivity,
-            targetBGForOutput: targetBGForOutput,
-            COB: meal?.mealCOB ?? 0,
-            IOB: iob.iob
-        )
-    }
+    // MARK: - Old Decision Logic (DEPRECATED - будет удалена после полной портации)
 
     private static func makeBasalDecision(
         currentBG: Double,
@@ -1622,89 +1578,7 @@ extension SwiftOpenAPSAlgorithms {
         return max(0, roundedDose)
     }
 
-    // MARK: - Result Creators (с prediction arrays)
-
-    private static func createResultWithPredictions(
-        currentBG: Double,
-        eventualBG: Double,
-        targetBG: Double,
-        currentBasal: Double,
-        deliverAt: Date,
-        sensitivityRatio: Double?,
-        predictionArrays: PredictionArrays,
-        profile: ProfileResult,
-        bgi: Double,
-        deviation: Double,
-        sensitivity: Double,
-        targetBGForOutput: Double,
-        COB: Double,
-        IOB: Double
-    ) -> DetermineBasalResult {
-        // ✅ КОНВЕРТИРУЕМ все BG-значения для результата (как в determine-basal.js:806-810)
-        let convertedBGI = SwiftOpenAPSAlgorithms.convertBG(bgi, profile: profile)
-        let convertedDeviation = SwiftOpenAPSAlgorithms.convertBG(deviation, profile: profile)
-        let convertedISF = SwiftOpenAPSAlgorithms.convertBG(sensitivity, profile: profile)
-        let convertedTargetBG = SwiftOpenAPSAlgorithms.convertBG(targetBGForOutput, profile: profile)
-        
-        // ТОЧНО как в JS (строка 811-818): формируем reason с minPredBG, minGuardBG, IOBpredBG
-        let CR = round(profile.carbRatioValue, digits: 2)
-        var reason = "COB: \(COB), Dev: \(convertedDeviation), BGI: \(convertedBGI), ISF: \(convertedISF), CR: \(CR), minPredBG: \(convertBG(predictionArrays.minPredBG, profile: profile)), minGuardBG: \(convertBG(predictionArrays.minGuardBG, profile: profile)), IOBpredBG: \(convertBG(predictionArrays.lastIOBpredBG, profile: profile))"
-        if predictionArrays.lastCOBpredBG > 0 {
-            reason += ", COBpredBG: \(convertBG(predictionArrays.lastCOBpredBG, profile: profile))"
-        }
-        if predictionArrays.lastUAMpredBG > 0 {
-            reason += ", UAMpredBG: \(convertBG(predictionArrays.lastUAMpredBG, profile: profile))"
-        }
-        reason += "; "
-
-        // Simple decision logic (will be expanded later)
-        if eventualBG >= 100, eventualBG <= 180 {
-            reason += "in range: setting current basal"
-            return DetermineBasalResult(
-                temp: "absolute",
-                bg: currentBG,
-                tick: "+0", // Simplified
-                eventualBG: eventualBG,
-                insulinReq: 0,
-                reservoir: nil,
-                deliverAt: deliverAt,
-                sensitivityRatio: sensitivityRatio,
-                reason: reason,
-                rate: currentBasal,
-                duration: 30,
-                units: nil,
-                carbsReq: nil,
-                BGI: convertedBGI,
-                deviation: convertedDeviation,
-                ISF: convertedISF,
-                targetBG: convertedTargetBG,
-                predBGs: predictionArrays.predBGsDict, // 🚀 КРИТИЧНО: predBGs для графиков!
-                profile: profile
-            )
-        } else {
-            return DetermineBasalResult(
-                temp: "absolute",
-                bg: currentBG,
-                tick: "+0",
-                eventualBG: eventualBG,
-                insulinReq: 0,
-                reservoir: nil,
-                deliverAt: deliverAt,
-                sensitivityRatio: sensitivityRatio,
-                reason: reason + "adjustment needed",
-                rate: currentBasal,
-                duration: 30,
-                units: nil,
-                carbsReq: nil,
-                BGI: convertedBGI,
-                deviation: convertedDeviation,
-                ISF: convertedISF,
-                targetBG: convertedTargetBG,
-                predBGs: predictionArrays.predBGsDict, // 🚀 КРИТИЧНО: predBGs для графиков!
-                profile: profile
-            )
-        }
-    }
+    // MARK: - Result Creators
 
     private static func createSafetyResult(
         reason: String,
