@@ -68,6 +68,13 @@ extension SwiftOpenAPSAlgorithms {
         let maxUAMPredBG: Double
         let avgPredBG: Double
         let UAMduration: Double
+        
+        // Last prediction values для reason (строки 658, 678, 691 в JS)
+        let lastIOBpredBG: Double
+        let lastCOBpredBG: Double
+        let lastUAMpredBG: Double
+        let lastZTpredBG: Double
+        let minPredBG: Double
 
         var predBGsDict: [String: [Double]] {
             [
@@ -1000,7 +1007,9 @@ extension SwiftOpenAPSAlgorithms {
             bgi: bgi,
             deviation: deviation,
             sensitivity: sensitivity,
-            targetBGForOutput: targetBGForOutput
+            targetBGForOutput: targetBGForOutput,
+            COB: meal?.mealCOB ?? 0,
+            IOB: iob.iob
         )
     }
 
@@ -1463,6 +1472,12 @@ extension SwiftOpenAPSAlgorithms {
         }
         minGuardBG = round(minGuardBG)
         
+        // ТОЧНО как в JS (строки 658, 678, 691, 668): last prediction values
+        let lastIOBpredBG = round(IOBpredBGs.last ?? bg)
+        let lastCOBpredBG = COBpredBGs.isEmpty ? 0 : round(COBpredBGs.last!)
+        let lastUAMpredBG = UAMpredBGs.isEmpty ? 0 : round(UAMpredBGs.last!)
+        let lastZTpredBG = round(ZTpredBGs.last ?? bg)
+        
         return PredictionArrays(
             IOBpredBGs: IOBpredBGs,
             COBpredBGs: COBpredBGs,
@@ -1482,7 +1497,12 @@ extension SwiftOpenAPSAlgorithms {
             maxCOBPredBG: maxCOBPredBG,
             maxUAMPredBG: maxUAMPredBG,
             avgPredBG: avgPredBG,
-            UAMduration: UAMduration
+            UAMduration: UAMduration,
+            lastIOBpredBG: lastIOBpredBG,
+            lastCOBpredBG: lastCOBpredBG,
+            lastUAMpredBG: lastUAMpredBG,
+            lastZTpredBG: lastZTpredBG,
+            minPredBG: minPredBG
         )
     }
 
@@ -1605,7 +1625,9 @@ extension SwiftOpenAPSAlgorithms {
         bgi: Double,
         deviation: Double,
         sensitivity: Double,
-        targetBGForOutput: Double
+        targetBGForOutput: Double,
+        COB: Double,
+        IOB: Double
     ) -> DetermineBasalResult {
         // ✅ КОНВЕРТИРУЕМ все BG-значения для результата (как в determine-basal.js:806-810)
         let convertedBGI = SwiftOpenAPSAlgorithms.convertBG(bgi, profile: profile)
@@ -1613,9 +1635,16 @@ extension SwiftOpenAPSAlgorithms {
         let convertedISF = SwiftOpenAPSAlgorithms.convertBG(sensitivity, profile: profile)
         let convertedTargetBG = SwiftOpenAPSAlgorithms.convertBG(targetBGForOutput, profile: profile)
         
-        var reason = "BG: \(Int(currentBG)), "
-        reason += "Target: \(Int(targetBG)), "
-        reason += "EventualBG: \(Int(eventualBG)), "
+        // ТОЧНО как в JS (строка 811-818): формируем reason с minPredBG, minGuardBG, IOBpredBG
+        let CR = round(profile.carbRatioValue, digits: 2)
+        var reason = "COB: \(COB), Dev: \(convertedDeviation), BGI: \(convertedBGI), ISF: \(convertedISF), CR: \(CR), minPredBG: \(convertBG(predictionArrays.minPredBG, profile: profile)), minGuardBG: \(convertBG(predictionArrays.minGuardBG, profile: profile)), IOBpredBG: \(convertBG(predictionArrays.lastIOBpredBG, profile: profile))"
+        if predictionArrays.lastCOBpredBG > 0 {
+            reason += ", COBpredBG: \(convertBG(predictionArrays.lastCOBpredBG, profile: profile))"
+        }
+        if predictionArrays.lastUAMpredBG > 0 {
+            reason += ", UAMpredBG: \(convertBG(predictionArrays.lastUAMpredBG, profile: profile))"
+        }
+        reason += "; "
 
         // Simple decision logic (will be expanded later)
         if eventualBG >= 100, eventualBG <= 180 {
