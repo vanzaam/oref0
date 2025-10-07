@@ -26,6 +26,7 @@ public struct PumpHistoryEvent {
         case tempBasal
         case pumpSuspend
         case pumpResume
+        case pumpRewind // for rewind_resets_autosens
     }
     
     public init(type: EventType? = nil, timestamp: Date? = nil, amount: Decimal? = nil,
@@ -68,11 +69,29 @@ public struct ProfileResult {
     public let dia: Double
     public let current_basal: Double
     public let carbRatioValue: Double
+    public let rewind_resets_autosens: Bool? // for ЭТАП 3
+    public let sens: Double // ISF для autosens
+    public let max_daily_basal: Double // для ratio calculation
+    public let autosens_min: Double // ratio limit min (default 0.7)
+    public let autosens_max: Double // ratio limit max (default 1.3)
+    public let min_5m_carbimpact: Double // для COB calculation
+    public let carb_ratio: Double // для carb absorption
     
-    public init(dia: Double, current_basal: Double, carbRatioValue: Double) {
+    public init(dia: Double, current_basal: Double, carbRatioValue: Double,
+                rewind_resets_autosens: Bool? = nil, sens: Double = 50.0,
+                max_daily_basal: Double = 1.0, autosens_min: Double = 0.7,
+                autosens_max: Double = 1.3, min_5m_carbimpact: Double = 3.0,
+                carb_ratio: Double = 10.0) {
         self.dia = dia
         self.current_basal = current_basal
         self.carbRatioValue = carbRatioValue
+        self.rewind_resets_autosens = rewind_resets_autosens
+        self.sens = sens
+        self.max_daily_basal = max_daily_basal
+        self.autosens_min = autosens_min
+        self.autosens_max = autosens_max
+        self.min_5m_carbimpact = min_5m_carbimpact
+        self.carb_ratio = carb_ratio
     }
 }
 

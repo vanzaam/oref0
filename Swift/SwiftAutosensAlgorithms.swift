@@ -87,6 +87,14 @@ extension SwiftOpenAPSAlgorithms {
         let profile = inputs.profile
         let basalprofile = inputs.basalProfile
         
+        // ЭТАП 3: lastSiteChange calculation (lines 24-46)
+        var lastSiteChange = calculateLastSiteChange(
+            glucoseData: glucose_data,
+            pumpHistory: inputs.pumpHistory,
+            profile: profile,
+            retrospective: inputs.retrospective ?? false
+        )
+        
         // ЭТАП 2: BUCKETING (lines 72-120)
         // Lines 72: Reverse glucose_data (newest first → oldest first)
         glucose_data.reverse()
@@ -94,7 +102,7 @@ extension SwiftOpenAPSAlgorithms {
         // Line 73-120: Bucket glucose data by 5-minute intervals
         let bucketed_data = bucketGlucoseData(
             glucose_data: glucose_data,
-            lastSiteChange: nil // TODO: ЭТАП 3
+            lastSiteChange: lastSiteChange
         )
         
         guard bucketed_data.count >= 36 else {
@@ -436,6 +444,51 @@ extension SwiftOpenAPSAlgorithms {
         }
 
         return totalAbsorbed
+    }
+    
+    // MARK: - lastSiteChange Function
+    
+    /// Портирование lastSiteChange logic из autosens.js (lines 24-46)
+    /// Определяет начальную точку для анализа (24h ago или last rewind)
+    private static func calculateLastSiteChange(
+        glucoseData: [BloodGlucose],
+        pumpHistory: [PumpHistoryEvent],
+        profile: ProfileResult,
+        retrospective: Bool
+    ) -> Date? {
+        // Lines 25-30: Use last 24h worth of data by default
+        var lastSiteChange: Date
+        
+        if retrospective {
+            // Line 27: retrospective mode - use oldest glucose date
+            if let firstGlucose = glucoseData.first,
+               let firstDate = firstGlucose.date {
+                lastSiteChange = firstDate.addingTimeInterval(-24 * 60 * 60)
+            } else {
+                lastSiteChange = Date().addingTimeInterval(-24 * 60 * 60)
+            }
+        } else {
+            // Line 29: normal mode - 24h ago from now
+            lastSiteChange = Date().addingTimeInterval(-24 * 60 * 60)
+        }
+        
+        // Lines 31-46: Check rewind_resets_autosens
+        if profile.rewind_resets_autosens == true {
+            // Line 34: Scan through pumphistory
+            for event in pumpHistory {
+                // Line 36: Look for Rewind events
+                if event.type == .pumpRewind || event.eventType == "Rewind" {
+                    // Line 40-42: Set lastSiteChange to rewind timestamp
+                    if let timestamp = event.timestamp {
+                        lastSiteChange = timestamp
+                        debug(.openAPS, "Setting lastSiteChange to \(timestamp) using Rewind event")
+                        break
+                    }
+                }
+            }
+        }
+        
+        return lastSiteChange
     }
     
     // MARK: - Bucketing Function
