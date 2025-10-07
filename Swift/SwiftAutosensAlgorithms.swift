@@ -394,16 +394,70 @@ extension SwiftOpenAPSAlgorithms {
         let rmsDev = sqrt(squareDeviations / Double(deviations.count))
         debug(.openAPS, "RMS deviation: \(String(format: "%.2f", rmsDev))")
         
-        // TODO: ЭТАП 11 - Calculate ratio with correct formula
-        // For now return placeholder
+        // ЭТАП 11: ПРАВИЛЬНАЯ ФОРМУЛА RATIO (lines 393-425)
+        
+        // Line 393: Initialize basalOff
+        var basalOff: Double = 0
+        var pastSensitivity: String
+        
+        // Lines 395-403: Calculate basalOff based on pSensitive/pResistant
+        if pSensitive < 0 {
+            // Line 396: ПРАВИЛЬНАЯ ФОРМУЛА!
+            basalOff = pSensitive * (60.0/5.0) / profile.sens
+            pastSensitivity = "more sensitive"
+            debug(.openAPS, "Insulin sensitivity detected")
+        } else if pResistant > 0 {
+            // Line 399: ПРАВИЛЬНАЯ ФОРМУЛА!
+            basalOff = pResistant * (60.0/5.0) / profile.sens
+            pastSensitivity = "less sensitive"
+            debug(.openAPS, "Insulin resistance detected")
+        } else {
+            pastSensitivity = "normal"
+            debug(.openAPS, "Sensitivity normal")
+        }
+        
+        // Line 404: ПРАВИЛЬНАЯ ФОРМУЛА RATIO!
+        var ratio = 1.0 + (basalOff / profile.max_daily_basal)
+        
+        // Lines 408-414: Apply ratio limits
+        let rawRatio = ratio
+        ratio = max(ratio, profile.autosens_min)
+        ratio = min(ratio, profile.autosens_max)
+        
+        if ratio != rawRatio {
+            debug(.openAPS, "Ratio limited from \(String(format: "%.2f", rawRatio)) to \(String(format: "%.2f", ratio))")
+        }
+        
+        // Line 416: Round to 2 decimal places
+        ratio = round(ratio * 100) / 100
+        
+        // Line 417: Calculate new ISF
+        let newisf = round(profile.sens / ratio)
+        debug(.openAPS, "ISF adjusted from \(profile.sens) to \(newisf)")
+        
+        // Determine ratio limit string
+        let ratioLimit: String
+        if ratio >= profile.autosens_max {
+            ratioLimit = "max"
+        } else if ratio <= profile.autosens_min {
+            ratioLimit = "min"
+        } else {
+            ratioLimit = "in range"
+        }
+        
+        // Format result string
+        let sensResult = "Autosens ratio: \(String(format: "%.2f", ratio)) (average deviation: \(String(format: "%.1f", pSensitive)) mg/dL from \(deviations.count) data points)"
+        
+        // Lines 422-425: Return result
         let result = AutosensResult(
-            ratio: 1.0,
+            ratio: ratio,
             deviation: pSensitive,
-            pastSensitivity: "in progress",
-            ratioLimit: "in progress",
-            sensResult: "ЭТАПЫ 1-10 complete, ЭТАП 11 pending",
+            pastSensitivity: pastSensitivity,
+            ratioLimit: ratioLimit,
+            sensResult: sensResult,
             timestamp: Date()
         )
+        
         return .success(result)
     }
 
