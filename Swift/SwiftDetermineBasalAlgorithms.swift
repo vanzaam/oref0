@@ -630,6 +630,9 @@ extension SwiftOpenAPSAlgorithms {
         // КРИТИЧЕСКАЯ ФОРМУЛА: ТОЧНЫЙ eventualBG как в оригинале (строка 417)
         let eventualBG = naive_eventualBG + deviation
 
+        // ТОЧНЫЙ расчет expectedDelta как в оригинале (строка 423)
+        let expectedDelta = calculateExpectedDelta(targetBG: targetBG, eventualBG: eventualBG, bgi: bgi)
+
         // КРИТИЧЕСКАЯ ПРОВЕРКА eventual BG из минифицированного кода
         // if(void 0===$||isNaN($))return p.error="Error: could not calculate eventualBG. ",p
         if eventualBG.isNaN || eventualBG.isInfinite {

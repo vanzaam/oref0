@@ -74,6 +74,8 @@ extension SwiftOpenAPSAlgorithms {
         let maxDeltaBGThreshold: Double?       // maxDelta_bg_threshold (строка 870-875)
         let bolusIncrement: Double?            // bolus_increment (строка 1097-1098)
         let smbInterval: Double?               // SMBInterval (строка 1132-1137)
+        let skipNeutralTemps: Bool?            // skip_neutral_temps (строка 925)
+        let carbsReqThreshold: Double?         // carbsReqThreshold (строка 900)
 
         // Дополнительные параметры безопасности
         let advTargetAdjustments: Bool
@@ -182,6 +184,8 @@ extension SwiftOpenAPSAlgorithms {
             maxDeltaBGThreshold: inputs.preferences?.maxDeltaBGThreshold,
             bolusIncrement: inputs.preferences?.bolusIncrement,
             smbInterval: inputs.preferences?.smbInterval,
+            skipNeutralTemps: inputs.preferences?.skipNeutralTemps,
+            carbsReqThreshold: inputs.preferences?.carbsReqThreshold,
 
             // Дополнительные параметры безопасности
             advTargetAdjustments: inputs.preferences?.advTargetAdjustments ?? false,
