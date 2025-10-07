@@ -147,27 +147,75 @@ extension SwiftOpenAPSAlgorithms {
             }
         }
 
-        // Анализируем данные за 8 и 24 часа
-        let ratio8h = calculateAutosensRatio(
-            glucoseData: sortedGlucose,
-            pumpHistory: inputs.pumpHistory,
-            profile: inputs.profile,
-            carbHistory: inputs.carbHistory,
-            deviationHours: 8
+        // ЭТАП 5: MAIN LOOP - Part 1 (lines 150-199)
+        // Initialize arrays
+        var deviations: [Double] = []
+        var avgDeltas: [Double] = []
+        var bgis: [Double] = []
+        
+        // Line 150: Loop through bucketed_data starting from index 3
+        for i in 3..<bucketed_data.count {
+            let bucketedBG = bucketed_data[i]
+            let bgTime = bucketedBG.date
+            
+            // Line 153: isfLookup - get dynamic sens for this time
+            let sens = isfLookup(basalProfile: basalprofile, time: bgTime, defaultSens: profile.sens)
+            
+            // Lines 159-172: Get bg, last_bg, old_bg
+            let bg = bucketedBG.glucose
+            let last_bg = bucketed_data[i-1].glucose
+            let old_bg = bucketed_data[i-3].glucose
+            
+            // Line 163: Validate BG values
+            guard bg >= 40, last_bg >= 40, old_bg >= 40 else {
+                debug(.openAPS, "Invalid BG: \(bg), \(last_bg), \(old_bg)")
+                continue
+            }
+            
+            // Line 167-168: Calculate deltas
+            let avgDelta = (bg - old_bg) / 3.0
+            let delta = bg - last_bg
+            
+            avgDeltas.append(avgDelta)
+            
+            // Line 176: basalLookup - get dynamic basal for this time
+            let currentBasal = basalLookup(basalProfile: basalprofile, time: bgTime, defaultBasal: profile.current_basal)
+            
+            // Line 181: Calculate IOB
+            let iobResult = calculateIOBAtTime(
+                time: bgTime,
+                pumpHistory: inputs.pumpHistory,
+                profile: profile
+            )
+            
+            // Line 185: Calculate BGI (blood glucose impact)
+            let bgi = round((-iobResult.activity * sens * 5) * 100) / 100
+            bgis.append(bgi)
+            
+            // Line 192: Calculate deviation
+            var deviation = delta - bgi
+            
+            // Line 196-198: Set positive deviations to zero if BG < 80
+            if bg < 80 && deviation > 0 {
+                deviation = 0
+            }
+            
+            // TODO: ЭТАПЫ 6-11 (COB, UAM, tempTarget, etc)
+            // For now just collect deviations
+            // Later will add meal tracking, UAM detection, etc.
+        }
+        
+        // TODO: Analyze deviations and calculate ratio (ЭТАП 10-11)
+        // For now return placeholder
+        let result = AutosensResult(
+            ratio: 1.0,
+            deviation: 0,
+            pastSensitivity: "in progress",
+            ratioLimit: "in progress",
+            sensResult: "ЭТАП 5 complete, ЭТАПЫ 6-11 pending",
+            timestamp: Date()
         )
-
-        let ratio24h = calculateAutosensRatio(
-            glucoseData: sortedGlucose,
-            pumpHistory: inputs.pumpHistory,
-            profile: inputs.profile,
-            carbHistory: inputs.carbHistory,
-            deviationHours: 24
-        )
-
-        // Выбираем наименьший ratio (более консервативный)
-        let selectedRatio = ratio8h.ratio < ratio24h.ratio ? ratio8h : ratio24h
-
-        return .success(selectedRatio)
+        return .success(result)
     }
 
     // MARK: - Core Autosens Calculation
@@ -473,6 +521,46 @@ extension SwiftOpenAPSAlgorithms {
         }
 
         return totalAbsorbed
+    }
+    
+    // MARK: - ISF and Basal Lookup Functions
+    
+    /// Портирование isf.isfLookup() из lib/profile/isf.js (line 153)
+    /// Получает dynamic ISF для заданного времени
+    private static func isfLookup(
+        basalProfile: [BasalProfileEntry],
+        time: Date,
+        defaultSens: Double
+    ) -> Double {
+        // Simplified version - uses default sens
+        // Full version would lookup from profile by time of day
+        // TODO: Implement full isfProfile lookup when available
+        return defaultSens
+    }
+    
+    /// Портирование basal.basalLookup() из lib/profile/basal.js (line 176)
+    /// Получает dynamic basal для заданного времени
+    private static func basalLookup(
+        basalProfile: [BasalProfileEntry],
+        time: Date,
+        defaultBasal: Double
+    ) -> Double {
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.hour, .minute], from: time)
+        let minutesFromMidnight = (components.hour ?? 0) * 60 + (components.minute ?? 0)
+        
+        // Find matching basal entry
+        var currentBasal = defaultBasal
+        
+        for entry in basalProfile {
+            if entry.minutes <= minutesFromMidnight {
+                currentBasal = Double(entry.rate)
+            } else {
+                break
+            }
+        }
+        
+        return currentBasal
     }
     
     // MARK: - lastSiteChange Function
