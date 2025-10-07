@@ -97,9 +97,9 @@ extension SwiftOpenAPSAlgorithms {
             formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
             formatter.timeZone = TimeZone(abbreviation: "UTC")
 
-            // ✅ КРИТИЧЕСКАЯ КОНВЕРТАЦИЯ: Конвертируем все BG-значения через convertBG
-            let convertedBG = SwiftOpenAPSAlgorithms.convertBG(bg, profile: profile)
-            let convertedEventualBG = SwiftOpenAPSAlgorithms.convertBG(eventualBG, profile: profile)
+            // ВАЖНО: bg и eventualBG ВСЕГДА в mg/dL (как в оригинале determine-basal.js:698)
+            // Комментарий из оригинала: "for FreeAPS-X needs to be in mg/dL"
+            // НЕ конвертируем bg и eventualBG!
 
             // Ограничиваем точность чисел для совместимости с Swift Decimal
             let rateString = rate.map { String(format: "%.2f", $0) } ?? "null"
@@ -123,25 +123,20 @@ extension SwiftOpenAPSAlgorithms {
                 profile.outUnits == "mmol/L" ? String(format: "%.1f", $0) : String(Int($0.rounded()))
             } ?? "null"
 
-            // ✅ КРИТИЧЕСКАЯ КОНВЕРТАЦИЯ: Конвертируем все значения в prediction arrays
+            // ВАЖНО: predBGs массивы ВСЕГДА в mg/dL (как в оригинале determine-basal.js:657,667,677,690)
+            // Оригинал: rT.predBGs.IOB = IOBpredBGs (без конвертации!)
+            // НЕ конвертируем predBGs массивы!
             let predBGsJSON = predBGs.map { key, values in
-                let convertedValues = values.map { 
-                    SwiftOpenAPSAlgorithms.convertBG($0, profile: profile) 
-                }
-                let valuesString = convertedValues.map { 
-                    profile.outUnits == "mmol/L" 
-                        ? String(format: "%.1f", $0)  // mmol/L с 1 знаком
-                        : String(Int($0.rounded()))    // mg/dL целое
-                }.joined(separator: ",")
+                let valuesString = values.map { String(Int($0.rounded())) }.joined(separator: ",")
                 return "\"\(key)\": [\(valuesString)]"
             }.joined(separator: ",")
 
             return """
             {
                 "temp": "\(temp)",
-                "bg": \(convertedBG),
+                "bg": \(Int(bg.rounded())),
                 "tick": "\(tick)",
-                "eventualBG": \(profile.outUnits == "mmol/L" ? String(format: "%.1f", convertedEventualBG) : String(Int(convertedEventualBG.rounded()))),
+                "eventualBG": \(Int(eventualBG.rounded())),
                 "insulinReq": \(insulinReq),
                 "reservoir": \(reservoirString),
                 "deliverAt": "\(formatter.string(from: deliverAt))",
