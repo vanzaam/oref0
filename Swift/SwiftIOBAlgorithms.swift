@@ -50,8 +50,8 @@ final class SwiftOpenAPSAlgorithms {
         }
     }
 
-    /// Портирование freeaps_iob функции из минифицированного JavaScript
-    /// Сохраняет все принципы работы исходного алгоритма
+    /// Портирование generate() из lib/iob/index.js
+    /// Использует: SwiftIOBHistory + SwiftIOBTotal + SwiftIOBCalculate
     static func calculateIOB(inputs: IOBInputs) -> IOBResult {
         let currentTime = inputs.clock
         var totalIOB = 0.0
@@ -371,7 +371,7 @@ extension Profile {
 
     var insulinPeakTime: Double? {
         // Время пика инсулина в минутах
-        // Из минифицированного кода: rapid-acting = 75, ultra-rapid = 55
+        // Из lib/iob/calculate.js: rapid-acting = 75, ultra-rapid = 55
         switch insulinActionCurve {
         case "rapid-acting":
             return 75.0
