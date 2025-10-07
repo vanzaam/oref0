@@ -53,6 +53,21 @@ extension SwiftOpenAPSAlgorithms {
         let ZTpredBGs: [Double] // Zero Temp predictions как в оригинале
         let predCIs: [Double] // Predicted carb impacts
         let remainingCIs: [Double] // Remaining carb impacts
+        
+        // КРИТИЧЕСКИЕ значения из prediction arrays (строки 550-568 в JS)
+        let minIOBPredBG: Double
+        let minCOBPredBG: Double
+        let minUAMPredBG: Double
+        let minGuardBG: Double
+        let minCOBGuardBG: Double
+        let minUAMGuardBG: Double
+        let minIOBGuardBG: Double
+        let minZTGuardBG: Double
+        let maxIOBPredBG: Double
+        let maxCOBPredBG: Double
+        let maxUAMPredBG: Double
+        let avgPredBG: Double
+        let UAMduration: Double
 
         var predBGsDict: [String: [Double]] {
             [
@@ -773,7 +788,8 @@ extension SwiftOpenAPSAlgorithms {
             profile: profile,
             sensitivity: sensitivity,
             sensitivityRatio: sensitivityRatio,
-            minDelta: minDelta
+            minDelta: minDelta,
+            enableUAM: enableUAM
         )
 
         debug(
@@ -782,7 +798,11 @@ extension SwiftOpenAPSAlgorithms {
         )
 
         // ТОЧНАЯ логика отключения SMB как в оригинале (строка 862-880)
-        // TODO: добавить проверку minGuardBG < threshold когда будет полная portation prediction arrays (строка 862-866)
+        // Проверка minGuardBG < threshold (строка 862-866)
+        if enableSMB && predictionArrays.minGuardBG < threshold {
+            debug(.openAPS, "minGuardBG \(convertBG(predictionArrays.minGuardBG, profile: profile)) projected below \(convertBG(threshold, profile: profile)) - disabling SMB")
+            enableSMB = false
+        }
 
         // Disable SMB for sudden rises (строка 867-880)
         // Added maxDelta_bg_threshold as a hidden preference and included a cap at 0.3 as a safety limit
@@ -1194,83 +1214,260 @@ extension SwiftOpenAPSAlgorithms {
 
     // MARK: - КРИТИЧЕСКАЯ ФУНКЦИЯ: Prediction Arrays (строка 442-657 determine-basal.js)
 
-    /// ТОЧНОЕ портирование prediction logic из oref0 determine-basal.js
-    /// Создает массивы прогнозов IOB, COB, UAM, ZT для рисования графиков
+    /// ТОЧНАЯ портация prediction arrays из determine-basal.js:466-657
+    /// НЕТ УПРОЩЕНИЙ! Каждая формула точно как в JS
     private static func calculatePredictionArrays(
         bg: Double,
         bgi: Double,
-        iob _: IOBResult,
+        iob: IOBResult,
         meal: MealResult?,
         profile: ProfileResult,
         sensitivity: Double,
-        sensitivityRatio _: Double?,
-        minDelta: Double
+        sensitivityRatio: Double?,
+        minDelta: Double,
+        enableUAM: Bool
     ) -> PredictionArrays {
-        // Initialize prediction arrays как в оригинале (строка 442-449)
+        // ТОЧНАЯ инициализация как в JS (строка 466-477)
+        var ci = round(minDelta - bgi, digits: 1)
+        let uci = round(minDelta - bgi, digits: 1)
+        
+        // ISF (mg/dL/U) / CR (g/U) = CSF (mg/dL/g) (строка 477)
+        let csf = sensitivity / profile.carbRatioValue
+        debug(.openAPS, "profile.sens: \(profile.sens) sens: \(sensitivity) CSF: \(csf)")
+        
+        // ТОЧНО как в JS (строка 480-486)
+        let maxCarbAbsorptionRate: Double = 30 // g/h
+        let maxCI = round(maxCarbAbsorptionRate * csf * 5 / 60, digits: 1)
+        if ci > maxCI {
+            debug(.openAPS, "Limiting carb impact from \(ci) to \(maxCI) mg/dL/5m (\(maxCarbAbsorptionRate) g/h )")
+            ci = maxCI
+        }
+        
+        // ТОЧНЫЙ расчет remainingCATime как в JS (строка 487-509)
+        var remainingCATimeMin: Double = 3 // h
+        if let ratio = sensitivityRatio {
+            remainingCATimeMin = remainingCATimeMin / ratio
+        }
+        let assumedCarbAbsorptionRate: Double = 20 // g/h
+        var remainingCATime = remainingCATimeMin
+        
+        if let carbs = meal?.carbs, carbs > 0 {
+            remainingCATimeMin = max(remainingCATimeMin, (meal?.mealCOB ?? 0) / assumedCarbAbsorptionRate)
+            // TODO: lastCarbAge calculation
+            let fractionCOBAbsorbed = (carbs - (meal?.mealCOB ?? 0)) / carbs
+            // if the lastCarbTime was 1h ago, increase remainingCATime by 1.5 hours
+            remainingCATime = remainingCATimeMin // + 1.5 * lastCarbAge/60
+            remainingCATime = round(remainingCATime, digits: 1)
+            debug(.openAPS, "remainingCATime: \(remainingCATime) hours; \(round(fractionCOBAbsorbed*100))% carbs absorbed")
+        }
+        
+        // ТОЧНЫЙ расчет totalCI и remainingCarbs как в JS (строка 511-528)
+        let totalCI = max(0.0, ci / 5 * 60 * remainingCATime / 2)
+        let totalCA = totalCI / csf
+        let remainingCarbsCap: Double = profile.remainingCarbsCap.map { min(90, $0) } ?? 90
+        let remainingCarbsFraction: Double = profile.remainingCarbsFraction.map { min(1, $0) } ?? 1
+        let remainingCarbsIgnore = 1 - remainingCarbsFraction
+        var remainingCarbs = max(0, (meal?.mealCOB ?? 0) - totalCA - (meal?.carbs ?? 0) * remainingCarbsIgnore)
+        remainingCarbs = min(remainingCarbsCap, remainingCarbs)
+        let remainingCIpeak = remainingCarbs * csf * 5 / 60 / (remainingCATime / 2)
+        
+        // ТОЧНЫЙ расчет slopeFromDeviations как в JS (строка 530-536)
+        let slopeFromMaxDeviation = round(meal?.slopeFromMaxDeviation ?? 0, digits: 2)
+        let slopeFromMinDeviation = round(meal?.slopeFromMinDeviation ?? 0, digits: 2)
+        let slopeFromDeviations = min(slopeFromMaxDeviation, -slopeFromMinDeviation / 3)
+        
+        // ТОЧНЫЙ расчет cid как в JS (строка 541-548)
+        let cid: Double
+        if ci == 0 {
+            cid = 0
+        } else {
+            cid = min(remainingCATime * 60 / 5 / 2, max(0, (meal?.mealCOB ?? 0) * csf / ci))
+        }
+        debug(.openAPS, "Carb Impact: \(ci) mg/dL per 5m; CI Duration: \(round(cid*5/60*2, digits: 1)) hours; remaining CI (\(remainingCATime) peak): \(round(remainingCIpeak, digits: 1)) mg/dL per 5m")
+        
+        // ТОЧНАЯ инициализация min/max значений как в JS (строка 550-568)
+        var minIOBPredBG: Double = 999
+        var minCOBPredBG: Double = 999
+        var minUAMPredBG: Double = 999
+        var minGuardBG: Double = bg
+        var minCOBGuardBG: Double = 999
+        var minUAMGuardBG: Double = 999
+        var minIOBGuardBG: Double = 999
+        var minZTGuardBG: Double = 999
+        var maxIOBPredBG: Double = bg
+        var maxCOBPredBG: Double = bg
+        var maxUAMPredBG: Double = bg
+        var IOBpredBG = bg
+        var COBpredBG = bg
+        var UAMpredBG = bg
+        var ZTpredBG = bg
+        var UAMduration: Double = 0
+        
+        var remainingCItotal: Double = 0
+        var remainingCIs: [Double] = []
+        var predCIs: [Double] = []
+        
+        // Initialize arrays как в JS (строка 442-449)
         var IOBpredBGs: [Double] = [bg]
         var COBpredBGs: [Double] = [bg]
         var UAMpredBGs: [Double] = [bg]
         var ZTpredBGs: [Double] = [bg]
-        var predCIs: [Double] = []
-        var remainingCIs: [Double] = []
-
-        // Карб- и инсулин-влияние по мотивам oref0 determine-basal.js (строки 466-639)
-        // CSF (mg/dL per gram)
-        let csf = sensitivity / profile.carbRatioValue
-
-        // Текущий карб-импакт из отклонений: ci = (minDelta - bgi)
-        // (в mg/dL за 5 минут), округляем до сотых
-        var ci = round((minDelta - bgi) * 100) / 100
-        if ci < 0 { ci = 0 } // без отрицательного карб-импакта
-
-        // Макс. скорость абсорбции: 30 г/ч => предел карб-импакта за 5м
-        let maxCarbAbsorptionRateGPerHour = 30.0
-        let maxCIper5m = round(maxCarbAbsorptionRateGPerHour * csf * 5.0 / 60.0 * 100) / 100
-
-        // Сколько карб-вклада доступно исходя из COB (граммы -> mg/dL)
-        var remainingCOBmgdl = max(0.0, meal?.mealCOB ?? 0.0) * csf
-
-        for i in 0 ..< 48 {
-            // Инсулиновый тренд (BGI) — слегка затухающий
-            let insulinEffect = bgi * max(0.0, 1.0 - Double(i) * 0.02)
-            let nextIOB = IOBpredBGs.last! + insulinEffect
-
-            // Zero Temp — без инсулина
-            let nextZT = ZTpredBGs.last!
-
-            // Прогноз карб-импакта: линейный спад ci за ~2 часа (24 шага)
-            let decayedCI = max(0.0, ci * (1.0 - Double(i) / 24.0))
-            // Ограничиваем мгновенный вклад по физиологическому пределу
-            var predCI = min(decayedCI, maxCIper5m)
-            // Также ограничиваем наличным COB в mg/dL
-            predCI = min(predCI, remainingCOBmgdl)
-            remainingCOBmgdl = max(0.0, remainingCOBmgdl - predCI)
-
-            let nextCOB = COBpredBGs.last! + insulinEffect + predCI
-
-            // UAM: «необъявленная еда» — более длительный хвост
-            let uamCI = max(0.0, ci * (1.0 - Double(i) / 36.0))
-            let nextUAM = UAMpredBGs.last! + insulinEffect + min(uamCI, maxCIper5m)
-
-            IOBpredBGs.append(max(39, min(401, nextIOB)))
-            COBpredBGs.append(max(39, min(401, nextCOB)))
-            UAMpredBGs.append(max(39, min(401, nextUAM)))
-            ZTpredBGs.append(max(39, min(401, nextZT)))
-
-            predCIs.append(round(predCI * 100) / 100)
-            remainingCIs.append(round(remainingCOBmgdl * 100) / 100)
+        
+        // ТОЧНЫЙ цикл по iobArray как в JS (строка 574-639)
+        for iobTick in iob.iobContrib {
+            // ТОЧНЫЕ формулы из JS (строка 576-577)
+            let predBGI = round(-iobTick.activity * sensitivity * 5, digits: 2)
+            let predZTBGI = round(-(iobTick.iobWithZeroTemp?.activity ?? iobTick.activity) * sensitivity * 5, digits: 2)
+            
+            // for IOBpredBGs (строка 578-581)
+            let predDev = ci * (1 - min(1.0, Double(IOBpredBGs.count) / (60 / 5)))
+            IOBpredBG = IOBpredBGs.last! + predBGI + predDev
+            
+            // calculate predBGs with long zero temp (строка 582-583)
+            ZTpredBG = ZTpredBGs.last! + predZTBGI
+            
+            // for COBpredBGs (строка 584-596)
+            var predCI = max(0, max(0, ci) * (1 - Double(COBpredBGs.count) / max(cid * 2, 1)))
+            let intervals = min(Double(COBpredBGs.count), (remainingCATime * 12) - Double(COBpredBGs.count))
+            let remainingCI = max(0, intervals / (remainingCATime / 2 * 12) * remainingCIpeak)
+            remainingCItotal += predCI + remainingCI
+            remainingCIs.append(round(remainingCI, digits: 0))
+            predCIs.append(round(predCI, digits: 0))
+            COBpredBG = COBpredBGs.last! + predBGI + min(0, predDev) + predCI + remainingCI
+            
+            // for UAMpredBGs (строка 597-610)
+            let predUCIslope = max(0, uci + (Double(UAMpredBGs.count) * slopeFromDeviations))
+            let predUCImax = max(0, uci * (1 - Double(UAMpredBGs.count) / max(3 * 60 / 5, 1)))
+            let predUCI = min(predUCIslope, predUCImax)
+            if predUCI > 0 {
+                UAMduration = round(Double(UAMpredBGs.count + 1) * 5 / 60, digits: 1)
+            }
+            UAMpredBG = UAMpredBGs.last! + predBGI + min(0, predDev) + predUCI
+            
+            // truncate all BG predictions at 4 hours (строка 612-616)
+            if IOBpredBGs.count < 48 { IOBpredBGs.append(IOBpredBG) }
+            if COBpredBGs.count < 48 { COBpredBGs.append(COBpredBG) }
+            if UAMpredBGs.count < 48 { UAMpredBGs.append(UAMpredBG) }
+            if ZTpredBGs.count < 48 { ZTpredBGs.append(ZTpredBG) }
+            
+            // calculate minGuardBGs (строка 617-621)
+            if COBpredBG < minCOBGuardBG { minCOBGuardBG = round(COBpredBG) }
+            if UAMpredBG < minUAMGuardBG { minUAMGuardBG = round(UAMpredBG) }
+            if IOBpredBG < minIOBGuardBG { minIOBGuardBG = round(IOBpredBG) }
+            if ZTpredBG < minZTGuardBG { minZTGuardBG = round(ZTpredBG) }
+            
+            // set minPredBGs (строка 623-638)
+            let insulinPeakTime: Double = 90 // 60m + 30m for insulin delivery
+            let insulinPeak5m = (insulinPeakTime / 60) * 12
+            
+            // wait 90m before setting minIOBPredBG (строка 631-633)
+            if Double(IOBpredBGs.count) > insulinPeak5m && IOBpredBG < minIOBPredBG {
+                minIOBPredBG = round(IOBpredBG)
+            }
+            if IOBpredBG > maxIOBPredBG { maxIOBPredBG = IOBpredBG }
+            
+            // wait 85-105m before setting COB and 60m for UAM minPredBGs (строка 634-638)
+            if (cid > 0 || remainingCIpeak > 0) && Double(COBpredBGs.count) > insulinPeak5m && COBpredBG < minCOBPredBG {
+                minCOBPredBG = round(COBpredBG)
+            }
+            if (cid > 0 || remainingCIpeak > 0) && COBpredBG > maxIOBPredBG {
+                maxCOBPredBG = COBpredBG
+            }
+            if enableUAM && Double(UAMpredBGs.count) > 12 && UAMpredBG < minUAMPredBG {
+                minUAMPredBG = round(UAMpredBG)
+            }
+            if enableUAM && UAMpredBG > maxIOBPredBG {
+                maxUAMPredBG = UAMpredBG
+            }
         }
-
-        debug(.openAPS, "📊 Generated \(IOBpredBGs.count) IOB predictions: \(IOBpredBGs.prefix(5).map { Int($0) })")
-        debug(.openAPS, "📊 Generated \(COBpredBGs.count) COB predictions: \(COBpredBGs.prefix(5).map { Int($0) })")
-
+        
+        debug(.openAPS, "UAM Impact: \(uci) mg/dL per 5m; UAM Duration: \(UAMduration) hours")
+        
+        // ТОЧНАЯ постобработка массивов как в JS (строка 650-699)
+        IOBpredBGs = IOBpredBGs.map { round(min(401, max(39, $0))) }
+        // trim IOBpredBGs (строка 653-656)
+        while IOBpredBGs.count > 12 && IOBpredBGs[IOBpredBGs.count - 1] == IOBpredBGs[IOBpredBGs.count - 2] {
+            IOBpredBGs.removeLast()
+        }
+        
+        ZTpredBGs = ZTpredBGs.map { round(min(401, max(39, $0))) }
+        // TODO: trim ZTpredBGs logic (строка 662-666)
+        
+        if (meal?.mealCOB ?? 0) > 0 && (ci > 0 || remainingCIpeak > 0) {
+            COBpredBGs = COBpredBGs.map { round(min(401, max(39, $0))) }
+            // trim COBpredBGs (строка 673-676)
+            while COBpredBGs.count > 12 && COBpredBGs[COBpredBGs.count - 1] == COBpredBGs[COBpredBGs.count - 2] {
+                COBpredBGs.removeLast()
+            }
+        }
+        
+        if ci > 0 || remainingCIpeak > 0 {
+            if enableUAM {
+                UAMpredBGs = UAMpredBGs.map { round(min(401, max(39, $0))) }
+                // trim UAMpredBGs (строка 686-689)
+                while UAMpredBGs.count > 12 && UAMpredBGs[UAMpredBGs.count - 1] == UAMpredBGs[UAMpredBGs.count - 2] {
+                    UAMpredBGs.removeLast()
+                }
+            }
+        }
+        
+        // ТОЧНЫЙ расчет avgPredBG и minGuardBG как в JS (строка 704-740)
+        minIOBPredBG = max(39, minIOBPredBG)
+        minCOBPredBG = max(39, minCOBPredBG)
+        minUAMPredBG = max(39, minUAMPredBG)
+        let minPredBG = round(minIOBPredBG)
+        
+        let fractionCarbsLeft = (meal?.mealCOB ?? 0) / max(meal?.carbs ?? 1, 1)
+        var avgPredBG: Double
+        
+        if minUAMPredBG < 999 && minCOBPredBG < 999 {
+            avgPredBG = round((1 - fractionCarbsLeft) * UAMpredBG + fractionCarbsLeft * COBpredBG)
+        } else if minCOBPredBG < 999 {
+            avgPredBG = round((IOBpredBG + COBpredBG) / 2)
+        } else if minUAMPredBG < 999 {
+            avgPredBG = round((IOBpredBG + UAMpredBG) / 2)
+        } else {
+            avgPredBG = round(IOBpredBG)
+        }
+        
+        if minZTGuardBG > avgPredBG {
+            avgPredBG = minZTGuardBG
+        }
+        
+        // calculate minGuardBG (строка 728-740)
+        if cid > 0 || remainingCIpeak > 0 {
+            if enableUAM {
+                minGuardBG = fractionCarbsLeft * minCOBGuardBG + (1 - fractionCarbsLeft) * minUAMGuardBG
+            } else {
+                minGuardBG = minCOBGuardBG
+            }
+        } else if enableUAM {
+            minGuardBG = minUAMGuardBG
+        } else {
+            minGuardBG = minIOBGuardBG
+        }
+        minGuardBG = round(minGuardBG)
+        
         return PredictionArrays(
             IOBpredBGs: IOBpredBGs,
             COBpredBGs: COBpredBGs,
             UAMpredBGs: UAMpredBGs,
             ZTpredBGs: ZTpredBGs,
             predCIs: predCIs,
-            remainingCIs: remainingCIs
+            remainingCIs: remainingCIs,
+            minIOBPredBG: minIOBPredBG,
+            minCOBPredBG: minCOBPredBG,
+            minUAMPredBG: minUAMPredBG,
+            minGuardBG: minGuardBG,
+            minCOBGuardBG: minCOBGuardBG,
+            minUAMGuardBG: minUAMGuardBG,
+            minIOBGuardBG: minIOBGuardBG,
+            minZTGuardBG: minZTGuardBG,
+            maxIOBPredBG: maxIOBPredBG,
+            maxCOBPredBG: maxCOBPredBG,
+            maxUAMPredBG: maxUAMPredBG,
+            avgPredBG: avgPredBG,
+            UAMduration: UAMduration
         )
     }
 

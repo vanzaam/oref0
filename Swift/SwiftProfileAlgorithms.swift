@@ -76,6 +76,8 @@ extension SwiftOpenAPSAlgorithms {
         let smbInterval: Double?               // SMBInterval (строка 1132-1137)
         let skipNeutralTemps: Bool?            // skip_neutral_temps (строка 925)
         let carbsReqThreshold: Double?         // carbsReqThreshold (строка 900)
+        let remainingCarbsCap: Double?         // remainingCarbsCap (строка 516-518)
+        let remainingCarbsFraction: Double?    // remainingCarbsFraction (строка 519)
 
         // Дополнительные параметры безопасности
         let advTargetAdjustments: Bool
@@ -186,6 +188,8 @@ extension SwiftOpenAPSAlgorithms {
             smbInterval: inputs.preferences?.smbInterval,
             skipNeutralTemps: inputs.preferences?.skipNeutralTemps,
             carbsReqThreshold: inputs.preferences?.carbsReqThreshold,
+            remainingCarbsCap: inputs.preferences?.remainingCarbsCap,
+            remainingCarbsFraction: inputs.preferences?.remainingCarbsFraction,
 
             // Дополнительные параметры безопасности
             advTargetAdjustments: inputs.preferences?.advTargetAdjustments ?? false,
