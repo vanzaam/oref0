@@ -75,6 +75,10 @@ extension SwiftOpenAPSAlgorithms {
         let lastUAMpredBG: Double
         let lastZTpredBG: Double
         let minPredBG: Double
+        
+        // Carb impact values для carbsReq calculation (строка 470, 527 в JS)
+        let ci: Double
+        let remainingCIpeak: Double
 
         var predBGsDict: [String: [Double]] {
             [
@@ -953,8 +957,142 @@ extension SwiftOpenAPSAlgorithms {
         }
         reason += "; "
         
-        // TODO: Портировать логику строк 820-1193 из JS
-        // Пока возвращаем временный результат с правильным reason
+        // ТОЧНАЯ портация строк 820-929 из JS
+        
+        // Use minGuardBG to prevent overdosing in hypo-risk situations (строка 820-826)
+        var carbsReqBG = naive_eventualBG
+        if carbsReqBG < 40 {
+            carbsReqBG = min(predictionArrays.minGuardBG, carbsReqBG)
+        }
+        var bgUndershoot = threshold - carbsReqBG
+        
+        // calculate how long until COB (or IOB) predBGs drop below min_bg (строка 827-860)
+        var minutesAboveMinBG: Double = 240
+        var minutesAboveThreshold: Double = 240
+        let csf = sensitivity / profile.carbRatioValue
+        
+        // Используем ci и remainingCIpeak из prediction arrays (строка 470, 527 в JS)
+        let ci = predictionArrays.ci
+        let remainingCIpeak = predictionArrays.remainingCIpeak
+        
+        if (meal?.mealCOB ?? 0) > 0 && (ci > 0 || remainingCIpeak > 0) {
+            for i in 0..<predictionArrays.COBpredBGs.count {
+                if predictionArrays.COBpredBGs[i] < minBG {
+                    minutesAboveMinBG = Double(5 * i)
+                    break
+                }
+            }
+            for i in 0..<predictionArrays.COBpredBGs.count {
+                if predictionArrays.COBpredBGs[i] < threshold {
+                    minutesAboveThreshold = Double(5 * i)
+                    break
+                }
+            }
+        } else {
+            for i in 0..<predictionArrays.IOBpredBGs.count {
+                if predictionArrays.IOBpredBGs[i] < minBG {
+                    minutesAboveMinBG = Double(5 * i)
+                    break
+                }
+            }
+            for i in 0..<predictionArrays.IOBpredBGs.count {
+                if predictionArrays.IOBpredBGs[i] < threshold {
+                    minutesAboveThreshold = Double(5 * i)
+                    break
+                }
+            }
+        }
+        
+        // Calculate carbsReq (строка 882-903)
+        debug(.openAPS, "BG projected to remain above \(convertBG(minBG, profile: profile)) for \(Int(minutesAboveMinBG)) minutes")
+        if minutesAboveThreshold < 240 || minutesAboveMinBG < 60 {
+            debug(.openAPS, "BG projected to remain above \(convertBG(threshold, profile: profile)) for \(Int(minutesAboveThreshold)) minutes")
+        }
+        
+        let zeroTempDuration = minutesAboveThreshold
+        var zeroTempEffect = profile.currentBasal * sensitivity * zeroTempDuration / 60
+        let COBforCarbsReq = max(0, (meal?.mealCOB ?? 0) - 0.25 * (meal?.carbs ?? 0))
+        var carbsReq = (bgUndershoot - zeroTempEffect) / csf - COBforCarbsReq
+        zeroTempEffect = round(zeroTempEffect)
+        carbsReq = round(carbsReq)
+        
+        debug(.openAPS, "naive_eventualBG: \(convertBG(naive_eventualBG, profile: profile)), bgUndershoot: \(convertBG(bgUndershoot, profile: profile)), zeroTempDuration: \(zeroTempDuration), zeroTempEffect: \(zeroTempEffect), carbsReq: \(carbsReq)")
+        
+        var finalCarbsReq: Double? = nil
+        if carbsReq >= (profile.carbsReqThreshold ?? 1) && minutesAboveThreshold <= 45 {
+            finalCarbsReq = carbsReq
+            reason += "\(Int(carbsReq)) add'l carbs req w/in \(Int(minutesAboveThreshold))m; "
+        }
+        
+        // Begin core dosing logic (строка 905-928)
+        
+        // don't low glucose suspend if IOB is already super negative (строка 907-910)
+        if glucose.glucose < threshold && iob.iob < -profile.currentBasal * 20 / 60 && minDelta > 0 && minDelta > expectedDelta {
+            reason += "IOB \(iob.iob) < \(round(-profile.currentBasal*20/60, digits: 2))"
+            reason += " and minDelta \(convertBG(minDelta, profile: profile)) > expectedDelta \(convertBG(expectedDelta, profile: profile)); "
+        
+        // predictive low glucose suspend mode (строка 911-921) - КРИТИЧНО!
+        } else if glucose.glucose < threshold || predictionArrays.minGuardBG < threshold {
+            reason += "minGuardBG: \(convertBG(predictionArrays.minGuardBG, profile: profile)) < \(convertBG(threshold, profile: profile))"
+            bgUndershoot = targetBG - predictionArrays.minGuardBG
+            let worstCaseInsulinReq = bgUndershoot / sensitivity
+            var durationReq = round(60 * worstCaseInsulinReq / profile.currentBasal)
+            durationReq = round(durationReq / 30) * 30
+            // always set a 30-120m zero temp
+            durationReq = min(120, max(30, durationReq))
+            
+            return .success(DetermineBasalResult(
+                temp: "absolute",
+                bg: glucose.glucose,
+                tick: formatTick(glucose.delta),
+                eventualBG: eventualBG,
+                insulinReq: 0,
+                reservoir: inputs.reservoir.map { $0.reservoir },
+                deliverAt: clock,
+                sensitivityRatio: sensitivityRatio,
+                reason: reason,
+                rate: 0,
+                duration: Int(durationReq),
+                units: nil,
+                carbsReq: finalCarbsReq,
+                BGI: convertedBGI,
+                deviation: convertedDeviation,
+                ISF: convertedISF,
+                targetBG: convertedTargetBG,
+                predBGs: predictionArrays.predBGsDict,
+                profile: profile
+            ))
+        }
+        
+        // if not in LGS mode, cancel temps before the top of the hour (строка 923-928)
+        let deliverMinutes = Calendar.current.component(.minute, from: clock)
+        if (profile.skipNeutralTemps ?? false) && deliverMinutes >= 55 {
+            reason += "; Canceling temp at \(deliverMinutes)m past the hour. "
+            return .success(DetermineBasalResult(
+                temp: "absolute",
+                bg: glucose.glucose,
+                tick: formatTick(glucose.delta),
+                eventualBG: eventualBG,
+                insulinReq: 0,
+                reservoir: inputs.reservoir.map { $0.reservoir },
+                deliverAt: clock,
+                sensitivityRatio: sensitivityRatio,
+                reason: reason,
+                rate: 0,
+                duration: 0,
+                units: nil,
+                carbsReq: finalCarbsReq,
+                BGI: convertedBGI,
+                deviation: convertedDeviation,
+                ISF: convertedISF,
+                targetBG: convertedTargetBG,
+                predBGs: predictionArrays.predBGsDict,
+                profile: profile
+            ))
+        }
+        
+        // TODO: Портировать остальную логику строк 930-1193 из JS (core dosing logic)
+        // Пока возвращаем временный результат
         return .success(DetermineBasalResult(
             temp: "absolute",
             bg: glucose.glucose,
@@ -964,11 +1102,11 @@ extension SwiftOpenAPSAlgorithms {
             reservoir: inputs.reservoir.map { $0.reservoir },
             deliverAt: clock,
             sensitivityRatio: sensitivityRatio,
-            reason: reason + "portation in progress",
+            reason: reason + "core dosing logic - portation in progress",
             rate: Double(adjustedBasal),
             duration: 30,
             units: nil,
-            carbsReq: nil,
+            carbsReq: finalCarbsReq,
             BGI: convertedBGI,
             deviation: convertedDeviation,
             ISF: convertedISF,
@@ -1469,7 +1607,9 @@ extension SwiftOpenAPSAlgorithms {
             lastCOBpredBG: lastCOBpredBG,
             lastUAMpredBG: lastUAMpredBG,
             lastZTpredBG: lastZTpredBG,
-            minPredBG: minPredBG
+            minPredBG: minPredBG,
+            ci: ci,
+            remainingCIpeak: remainingCIpeak
         )
     }
 
