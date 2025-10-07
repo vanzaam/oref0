@@ -261,10 +261,153 @@ extension SwiftOpenAPSAlgorithms {
         return formatter.date(from: string)
     }
     
-    // MARK: - TODO: calcTempTreatments() (~200+ строк)
+    // MARK: - calcTempTreatments() - ГЛАВНАЯ ФУНКЦИЯ
     
-    // Эта функция будет добавлена в следующей сессии
-    // calcTempTreatments() - ГЛАВНАЯ функция (lines 161-572)
+    /// Inputs для calcTempTreatments
+    struct IOBHistoryInputs {
+        let history: [PumpHistoryEvent]
+        let history24: [PumpHistoryEvent]?
+        let profile: ProfileResult
+        let autosens: AutosensResult?
+        let clock: String
+    }
+    
+    /// Портирование calcTempTreatments() из lib/iob/history.js (lines 161-572)
+    /// ГЛАВНАЯ функция - обработка pump history для IOB
+    /// БЛОКИ 1-2: Initialization + Suspend/Resume matching (lines 161-260)
+    static func calcTempTreatments(
+        inputs: IOBHistoryInputs,
+        zeroTempDuration: Double? = nil
+    ) -> [Treatment] {
+        
+        // БЛОК 1: Initialization (lines 161-200)
+        
+        // Lines 162-165
+        var pumpHistory = inputs.history
+        let profile_data = inputs.profile
+        let autosens_data = inputs.autosens
+        
+        // Lines 166-173
+        var tempHistory: [TempEvent] = []
+        var tempBoluses: [TempEvent] = []
+        var pumpSuspends: [PumpSuspend] = []
+        var pumpResumes: [PumpSuspend] = []
+        var suspendedPrior = false
+        var firstResumeTime: String?
+        var lastSuspendTime: String?
+        var currentlySuspended = false
+        
+        // Line 175
+        let now = dateFromString(inputs.clock) ?? Date()
+        
+        // Lines 177-179: Concat history + history24
+        if let history24 = inputs.history24 {
+            pumpHistory = inputs.history + history24
+        }
+        
+        // Line 181
+        var lastRecordTime = now
+        
+        // Lines 183-200: Gather PumpSuspend and PumpResume
+        for current in pumpHistory {
+            if current._type == "PumpSuspend" {
+                if let timestamp = current.timestamp,
+                   let started_at = dateFromString(timestamp) {
+                    let suspend = PumpSuspend(
+                        date: started_at.timeIntervalSince1970 * 1000,
+                        duration: 0, // will be calculated later
+                        started_at: started_at
+                    )
+                    pumpSuspends.append(suspend)
+                }
+            } else if current._type == "PumpResume" {
+                if let timestamp = current.timestamp,
+                   let started_at = dateFromString(timestamp) {
+                    let resume = PumpSuspend(
+                        date: started_at.timeIntervalSince1970 * 1000,
+                        duration: 0,
+                        started_at: started_at
+                    )
+                    pumpResumes.append(resume)
+                }
+            }
+        }
+        
+        // БЛОК 2: Suspend/Resume matching (lines 201-260)
+        
+        // Lines 202-204: Sort by date
+        pumpSuspends.sort { $0.date < $1.date }
+        pumpResumes.sort { $0.date < $1.date }
+        
+        // Lines 206-215: Check if suspended prior
+        if !pumpResumes.isEmpty {
+            if let timestamp = pumpResumes[0].started_at.ISO8601Format() as String? {
+                firstResumeTime = timestamp
+            }
+            
+            // Check if first resume was before first suspend
+            if pumpSuspends.isEmpty || (pumpResumes[0].date < pumpSuspends[0].date) {
+                suspendedPrior = true
+            }
+        }
+        
+        // Line 217
+        var j = 0 // matching pumpResumes entry
+        
+        // Lines 219-241: Match resumes with suspends
+        var i = 0
+        while i < pumpSuspends.count {
+            // Find matching resume
+            while j < pumpResumes.count {
+                if pumpResumes[j].date > pumpSuspends[i].date {
+                    break
+                }
+                j += 1
+            }
+            
+            // Lines 227-237: Check if we've reached final suspend
+            if j >= pumpResumes.count && !currentlySuspended {
+                currentlySuspended = true
+                if let timestamp = pumpSuspends[i].started_at.ISO8601Format() as String? {
+                    lastSuspendTime = timestamp
+                }
+                break
+            }
+            
+            // Line 239: Calculate suspend duration
+            if j < pumpResumes.count {
+                var suspend = pumpSuspends[i]
+                suspend.duration = (pumpResumes[j].date - pumpSuspends[i].date) / 60 / 1000
+                pumpSuspends[i] = suspend
+            }
+            
+            i += 1
+        }
+        
+        // Lines 243-253: Error checking for mismatches
+        if !suspendedPrior && !currentlySuspended && (pumpResumes.count != pumpSuspends.count) {
+            warning(.openAPS, "Mismatched number of resumes(\(pumpResumes.count)) and suspends(\(pumpSuspends.count))!")
+        } else if suspendedPrior && !currentlySuspended && ((pumpResumes.count - 1) != pumpSuspends.count) {
+            warning(.openAPS, "Mismatched resumes(\(pumpResumes.count)) and suspends(\(pumpSuspends.count)) assuming suspended prior!")
+        } else if !suspendedPrior && currentlySuspended && (pumpResumes.count != (pumpSuspends.count - 1)) {
+            warning(.openAPS, "Mismatched resumes(\(pumpResumes.count)) and suspends(\(pumpSuspends.count)) assuming suspended past end!")
+        } else if suspendedPrior && currentlySuspended && (pumpResumes.count != pumpSuspends.count) {
+            warning(.openAPS, "Mismatched resumes(\(pumpResumes.count)) and suspends(\(pumpSuspends.count)) assuming suspended prior and past end!")
+        }
+        
+        // Lines 255-259: Truncate extra suspends
+        if i < (pumpSuspends.count - 1) {
+            pumpSuspends = Array(pumpSuspends[0...i])
+        }
+        
+        // TODO: БЛОКИ 3-5 (lines 260-572)
+        // - Process temp basals
+        // - Process boluses  
+        // - Finalization
+        
+        // Temporary return (will be completed in next session)
+        return []
+    }
 }
 
 // MARK: - Progress Notes
@@ -274,14 +417,18 @@ extension SwiftOpenAPSAlgorithms {
  
  ✅ ЧАСТЬ 1.1: splitTimespanWithOneSplitter() - ГОТОВО (~50 строк)
  ✅ ЧАСТЬ 1.2: splitTimespan() - ГОТОВО (~40 строк)
- ✅ ЧАСТЬ 1.3: splitAroundSuspends() - ГОТОВО (~120 строк) ← НОВАЯ!
- ⏳ ЧАСТЬ 2: calcTempTreatments() - TODO (~200 строк)
+ ✅ ЧАСТЬ 1.3: splitAroundSuspends() - ГОТОВО (~120 строк)
+ 🔄 ЧАСТЬ 2: calcTempTreatments() - В ПРОЦЕССЕ
+    ✅ БЛОК 1-2: Initialization + Suspend matching (~140 строк) ← НОВОЕ!
+    ⏳ БЛОК 3: Process temp basals (~100 строк)
+    ⏳ БЛОК 4: Process boluses (~80 строк)
+    ⏳ БЛОК 5: Finalization (~50 строк)
  
- ПРОГРЕСС: ~210 строк из ~400 (52.5%)! 🚀
+ ПРОГРЕСС: ~350 строк из ~600 (58%)! 🚀🚀
  
  СЛЕДУЮЩАЯ СЕССИЯ:
- 1. Портировать calcTempTreatments() (lines 161-572) ← ОСТАЛОСЬ
-    - Initialization (lines 161-200)
-    - Main logic (lines 200-400)  
-    - Finalization (lines 400-572)
+ 1. Портировать calcTempTreatments БЛОКИ 3-5 (lines 260-572)
+    - Process temp basals
+    - Process boluses
+    - Finalization
 */
