@@ -461,105 +461,21 @@ extension SwiftOpenAPSAlgorithms {
         return .success(result)
     }
 
-    // MARK: - Core Autosens Calculation
-
-    private static func calculateAutosensRatio(
-        glucoseData: [BloodGlucose],
-        pumpHistory: [PumpHistoryEvent],
-        profile: ProfileResult,
-        carbHistory: [CarbsEntry],
-        deviationHours: Int
-    ) -> AutosensResult {
-        let currentTime = Date()
-        let analysisStart = currentTime.addingTimeInterval(-Double(deviationHours) * 3600)
-
-        // Фильтруем данные за нужный период
-        let analysisGlucose = glucoseData.filter { bg in
-            let bgDate = bg.dateString ?? Date.distantPast
-            return bgDate >= analysisStart && bgDate <= currentTime
-        }
-
-        var deviations: [Double] = []
-        var autosensData: [AutosensDataPoint] = []
-
-        // Анализируем каждую точку глюкозы
-        for (index, bg) in analysisGlucose.enumerated() {
-            let bgDate = bg.dateString
-            guard let glucose = bg.glucose,
-                  index > 0 else { continue }
-
-            let prevBG = analysisGlucose[index - 1]
-            guard let prevGlucose = prevBG.glucose else { continue }
-            let prevDate = prevBG.dateString
-
-            // Рассчитываем delta
-            let timeDiff = bgDate.timeIntervalSince(prevDate) / 60.0 // в минутах
-            guard timeDiff > 0, timeDiff <= 15 else { continue } // Пропускаем аномальные интервалы
-
-            let glucoseDelta = Double(glucose - prevGlucose)
-
-            // Рассчитываем IOB на момент измерения
-            let iobResult = calculateIOBAtTime(
-                time: bgDate,
-                pumpHistory: pumpHistory,
-                profile: profile
-            )
-
-            // Рассчитываем влияние инсулина (BGI)
-            let bgi = -iobResult.activity * profile.sens * timeDiff
-
-            // Рассчитываем влияние углеводов
-            let carbImpact = calculateCarbImpactAtTime(
-                time: bgDate,
-                carbHistory: carbHistory,
-                profile: profile
-            )
-
-            // Предсказанное изменение глюкозы
-            let predicted = bgi + carbImpact
-
-            // Отклонение = реальное изменение - предсказанное
-            let deviation = glucoseDelta - predicted
-
-            // Классифицируем отклонение
-            let dataType = classifyDeviation(
-                deviation: deviation,
-                carbImpact: carbImpact,
-                iob: iobResult.iob
-            )
-
-            // Сохраняем точку данных
-            let dataPoint = AutosensDataPoint(
-                time: bgDate,
-                bg: Double(glucose),
-                deviation: deviation,
-                predicted: predicted,
-                iob: iobResult.iob,
-                activity: iobResult.activity,
-                carbImpact: carbImpact,
-                absorbed: calculateAbsorbedCarbs(
-                    time: bgDate,
-                    carbHistory: carbHistory,
-                    profile: profile
-                ), // ТОЧНЫЙ расчет absorbed carbs как в JS
-                type: dataType
-            )
-
-            autosensData.append(dataPoint)
-
-            // Добавляем отклонение в анализ (исключаем периоды с высоким COB)
-            if abs(carbImpact) < 5.0, dataType != "high_cob" {
-                deviations.append(deviation)
-            }
-        }
-
-        // Анализируем собранные отклонения
-        return analyzeDeviations(
-            deviations: deviations,
-            autosensData: autosensData,
-            deviationHours: deviationHours
-        )
-    }
+    // MARK: - OLD CODE REMOVED
+    
+    // calculateAutosensRatio() - УДАЛЕНА!
+    // Старая упрощенная версия заменена на полную портацию в calculateAutosens()
+    // 
+    // Полная портация включает все компоненты из lib/determine-basal/autosens.js:
+    // - Bucketing (lines 72-120)
+    // - lastSiteChange (lines 24-46)
+    // - Meals integration (lines 51-64, 122-141)
+    // - Main loop (lines 150-199)
+    // - COB tracking (lines 207-234)
+    // - absorbing + UAM (lines 236-298)
+    // - tempTarget + hour markers (lines 318-343)
+    // - Percentile analysis (lines 355-391)
+    // - ПРАВИЛЬНАЯ формула ratio (lines 393-425)
 
     // MARK: - Helper Functions
 
@@ -628,102 +544,14 @@ extension SwiftOpenAPSAlgorithms {
         return totalImpact
     }
 
-    private static func classifyDeviation(
-        deviation: Double,
-        carbImpact: Double,
-        iob: Double
-    ) -> String {
-        if abs(carbImpact) > 5.0 {
-            return "high_cob"
-        } else if abs(deviation) > 15.0 {
-            return "uam" // Unannounced Meals
-        } else if iob > 0.5 {
-            return "csf" // Correction Scale Factor
-        } else {
-            return "basal"
-        }
-    }
+    // classifyDeviation() - УДАЛЕНА, не используется в новой версии
+    // Type classification теперь в main loop (lines 245-309)
 
-    private static func analyzeDeviations(
-        deviations: [Double],
-        autosensData _: [AutosensDataPoint],
-        deviationHours _: Int
-    ) -> AutosensResult {
-        guard !deviations.isEmpty else {
-            return AutosensResult(
-                ratio: 1.0,
-                deviation: 0,
-                pastSensitivity: "insufficient clean data",
-                ratioLimit: "no change",
-                sensResult: "not enough clean data",
-                timestamp: Date()
-            )
-        }
-
-        // Рассчитываем среднее отклонение
-        let avgDeviation = deviations.reduce(0, +) / Double(deviations.count)
-
-        // Рассчитываем ratio чувствительности
-        // Если отклонение отрицательное - инсулин работает слабее (ratio > 1)
-        // Если отклонение положительное - инсулин работает сильнее (ratio < 1)
-
-        var ratio = 1.0
-        let sensitivityThreshold = 1.0 // mg/dL порог для изменения чувствительности
-
-        if abs(avgDeviation) > sensitivityThreshold {
-            // ТОЧНАЯ ФОРМУЛА из минифицированного autosens кода
-            // Основана на анализе реальных отклонений BGI vs реальных изменений глюкозы
-            let ratioChange = avgDeviation / 100.0 // Более консервативное масштабирование
-            ratio = 1.0 - ratioChange * 0.2 // Более осторожные изменения
-
-            // Ограничиваем ratio как в Preferences.swift
-            ratio = max(0.7, min(1.3, ratio))
-        }
-
-        // Округляем до 0.05
-        ratio = round(ratio * 20) / 20
-
-        // Определяем описательные строки
-        let pastSensitivity = formatSensitivity(avgDeviation)
-        let ratioLimit = formatRatioLimit(ratio)
-        let sensResult = formatSensResult(ratio, avgDeviation, deviations.count)
-
-        return AutosensResult(
-            ratio: ratio,
-            deviation: avgDeviation,
-            pastSensitivity: pastSensitivity,
-            ratioLimit: ratioLimit,
-            sensResult: sensResult,
-            timestamp: Date()
-        )
-    }
-
-    private static func formatSensitivity(_ avgDeviation: Double) -> String {
-        if avgDeviation > 2.0 {
-            return "less sensitive"
-        } else if avgDeviation < -2.0 {
-            return "more sensitive"
-        } else {
-            return "normal"
-        }
-    }
-
-    private static func formatRatioLimit(_ ratio: Double) -> String {
-        if ratio >= 1.3 {
-            return "max"
-        } else if ratio <= 0.7 {
-            return "min"
-        } else {
-            return "in range"
-        }
-    }
-
-    private static func formatSensResult(_ ratio: Double, _ avgDeviation: Double, _ dataPoints: Int) -> String {
-        let ratioStr = String(format: "%.2f", ratio)
-        let deviationStr = String(format: "%.1f", avgDeviation)
-
-        return "Autosens ratio: \(ratioStr) (average deviation: \(deviationStr) mg/dL from \(dataPoints) data points)"
-    }
+    // OLD FUNCTIONS REMOVED - не используются в новой полной портации:
+    // - analyzeDeviations() - replaced by percentile analysis in main function
+    // - formatSensitivity() - inline в ЭТАП 11
+    // - formatRatioLimit() - inline в ЭТАП 11  
+    // - formatSensResult() - inline в ЭТАП 11
 
     private static func calculateAbsorbedCarbs(
         time: Date,
