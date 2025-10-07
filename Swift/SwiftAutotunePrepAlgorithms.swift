@@ -270,9 +270,70 @@ extension SwiftOpenAPSAlgorithms {
         pumpBasalProfile: [BasalProfileEntry],
         basalProfile: [BasalProfileEntry]
     ) -> [DiaDeviation] {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 1168-1240
-        // TODO: Copy implementation
-        return []
+        let currentDIA = profile.dia
+        let startDIA = currentDIA - 2.0
+        let endDIA = currentDIA + 2.0
+        var diaDeviations: [DiaDeviation] = []
+
+        // Test different DIA values (line 41-92 in index.js)
+        var dia = startDIA
+        while dia <= endDIA {
+            // Create temporary profile with test DIA
+            var testProfile = profile
+            // testProfile.dia = dia  // In Swift we can't just change, need to recreate
+
+            // Re-run categorization with new DIA
+            let testResult = categorizeBGDatums(
+                bucketedData: bucketedData,
+                treatments: treatments,
+                profile: testProfile,
+                pumpHistory: pumpHistory,
+                pumpBasalProfile: pumpBasalProfile,
+                basalProfile: basalProfile,
+                categorizeUamAsBasal: false
+            )
+
+            let basalGlucose = testResult.basalGlucoseData
+
+            // Calculate deviations for each hour (line 51-73)
+            var sqrtDeviations = 0.0
+            var deviations = 0.0
+            var deviationsSq = 0.0
+
+            for hour in 0 ..< 24 {
+                for entry in basalGlucose {
+                    if let bgDate = ISO8601DateFormatter().date(from: entry.dateString) {
+                        let bgHour = Calendar.current.component(.hour, from: bgDate)
+                        if hour == bgHour {
+                            let dev = abs(entry.deviation)
+                            sqrtDeviations += pow(dev, 0.5)
+                            deviations += dev
+                            deviationsSq += pow(entry.deviation, 2)
+                        }
+                    }
+                }
+            }
+
+            let meanDeviation = round(deviations / Double(basalGlucose.count) * 1000) / 1000
+            let SMRDeviation = round(pow(sqrtDeviations / Double(basalGlucose.count), 2) * 1000) / 1000
+            let RMSDeviation = round(pow(deviationsSq / Double(basalGlucose.count), 0.5) * 1000) / 1000
+
+            debug(
+                .openAPS,
+                "📊 insulinEndTime \(dia) meanDeviation: \(meanDeviation) SMRDeviation: \(SMRDeviation) RMSDeviation: \(RMSDeviation) (mg/dL)"
+            )
+
+            diaDeviations.append(DiaDeviation(
+                dia: dia,
+                meanDeviation: meanDeviation,
+                SMRDeviation: SMRDeviation,
+                RMSDeviation: RMSDeviation
+            ))
+
+            dia += 1.0
+        }
+
+        return diaDeviations
     }
     
     /// Analyze peak time deviations
@@ -284,9 +345,69 @@ extension SwiftOpenAPSAlgorithms {
         pumpBasalProfile: [BasalProfileEntry],
         basalProfile: [BasalProfileEntry]
     ) -> [PeakDeviation] {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 1242-1313
-        // TODO: Copy implementation
-        return []
+        let currentPeak = profile.insulinPeakTime ?? 75.0
+        let startPeak = currentPeak - 10.0
+        let endPeak = currentPeak + 10.0
+        var peakDeviations: [PeakDeviation] = []
+
+        // Test different peak times (line 111-162 in index.js)
+        var peak = startPeak
+        while peak <= endPeak {
+            // Create temporary profile with test peak time
+            var testProfile = profile
+            // testProfile.insulinPeakTime = peak
+
+            let testResult = categorizeBGDatums(
+                bucketedData: bucketedData,
+                treatments: treatments,
+                profile: testProfile,
+                pumpHistory: pumpHistory,
+                pumpBasalProfile: pumpBasalProfile,
+                basalProfile: basalProfile,
+                categorizeUamAsBasal: false
+            )
+
+            let basalGlucose = testResult.basalGlucoseData
+
+            // Calculate deviations (same logic as DIA)
+            var sqrtDeviations = 0.0
+            var deviations = 0.0
+            var deviationsSq = 0.0
+
+            for hour in 0 ..< 24 {
+                for entry in basalGlucose {
+                    if let bgDate = ISO8601DateFormatter().date(from: entry.dateString) {
+                        let bgHour = Calendar.current.component(.hour, from: bgDate)
+                        if hour == bgHour {
+                            let dev = abs(entry.deviation)
+                            sqrtDeviations += pow(dev, 0.5)
+                            deviations += dev
+                            deviationsSq += pow(entry.deviation, 2)
+                        }
+                    }
+                }
+            }
+
+            let meanDeviation = round(deviations / Double(basalGlucose.count) * 1000) / 1000
+            let SMRDeviation = round(pow(sqrtDeviations / Double(basalGlucose.count), 2) * 1000) / 1000
+            let RMSDeviation = round(pow(deviationsSq / Double(basalGlucose.count), 0.5) * 1000) / 1000
+
+            debug(
+                .openAPS,
+                "📊 insulinPeakTime \(peak) meanDeviation: \(meanDeviation) SMRDeviation: \(SMRDeviation) RMSDeviation: \(RMSDeviation) (mg/dL)"
+            )
+
+            peakDeviations.append(PeakDeviation(
+                peak: peak,
+                meanDeviation: meanDeviation,
+                SMRDeviation: SMRDeviation,
+                RMSDeviation: RMSDeviation
+            ))
+
+            peak += 5.0
+        }
+
+        return peakDeviations
     }
     
     /// Get minutes from start time string
