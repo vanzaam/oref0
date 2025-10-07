@@ -64,11 +64,8 @@ extension SwiftOpenAPSAlgorithms {
         var mealCarbs: Double? // для tracking
     }
     
-    /// Meal input (из find_meals)
-    struct MealInput {
-        let timestamp: String
-        let carbs: Double
-    }
+    // NOTE: MealInput определен в SwiftMealHistory.swift
+    // Используем SwiftMealHistory.MealInput напрямую
 
     /// ПОЛНАЯ портация detectSensitivity() из lib/determine-basal/autosens.js
     /// Lines 11-426: Анализ чувствительности к инсулину
@@ -116,6 +113,38 @@ extension SwiftOpenAPSAlgorithms {
                 timestamp: Date()
             )
             return .success(result)
+        }
+        
+        // ЭТАП 4: MEALS INTEGRATION (lines 48-64, 122-141)
+        // Line 49: Get treatments (IOB calculation) - skip for now, will add in ЭТАП 5
+        
+        // Lines 51-58: Get meals from meal history
+        var meals = SwiftMealHistory.findMealInputs(
+            pumpHistory: inputs.pumpHistory,
+            carbHistory: inputs.carbHistory,
+            profile: profile
+        )
+        
+        // Lines 59-64: Sort meals by timestamp (newest first)
+        meals = meals.sorted { meal1, meal2 in
+            guard let date1 = dateFromString(meal1.timestamp),
+                  let date2 = dateFromString(meal2.timestamp) else {
+                return false
+            }
+            return date1 > date2 // descending
+        }
+        
+        // Lines 122-141: Remove old meals (older than oldest bucketed glucose)
+        if let oldestBG = bucketed_data.first {
+            let oldestBGTime = oldestBG.dateTime
+            
+            meals = meals.filter { meal in
+                guard let mealDate = dateFromString(meal.timestamp) else {
+                    return false
+                }
+                let mealTime = mealDate.timeIntervalSince1970 * 1000
+                return mealTime >= oldestBGTime // keep meals >= oldest BG
+            }
         }
 
         // Анализируем данные за 8 и 24 часа
@@ -614,6 +643,20 @@ extension SwiftOpenAPSAlgorithms {
         }
         
         return nil
+    }
+    
+    // MARK: - Helper Functions
+    
+    /// Parse ISO8601 date string to Date
+    private static func dateFromString(_ dateString: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = formatter.date(from: dateString) {
+            return date
+        }
+        // Try without fractional seconds
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: dateString)
     }
     
     // MARK: - Percentile Function
