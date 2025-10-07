@@ -789,7 +789,8 @@ extension SwiftOpenAPSAlgorithms {
             sensitivity: sensitivity,
             sensitivityRatio: sensitivityRatio,
             minDelta: minDelta,
-            enableUAM: enableUAM
+            enableUAM: enableUAM,
+            targetBG: targetBG
         )
 
         debug(
@@ -855,9 +856,8 @@ extension SwiftOpenAPSAlgorithms {
             
             // calculate a long enough zero temp to eventually correct back up to target (строка 1101-1104)
             let smbTarget = targetBG
-            let naiveEventualBG = glucose.glucose + (bgi * (profile.dia * 60 / 5))  // упрощенный расчет
-            // TODO: использовать minIOBPredBG из prediction arrays когда будет полная портация
-            let worstCaseInsulinReq = (smbTarget - naiveEventualBG) / sensitivity
+            // ТОЧНО как в JS (строка 1103): используем (naive_eventualBG + minIOBPredBG)/2
+            let worstCaseInsulinReq = (smbTarget - (naive_eventualBG + predictionArrays.minIOBPredBG) / 2) / sensitivity
             var durationReq = round(60 * worstCaseInsulinReq / profile.currentBasal)
             
             // if insulinReq > 0 but not enough for a microBolus, don't set an SMB zero temp (строка 1106-1109)
@@ -1225,7 +1225,8 @@ extension SwiftOpenAPSAlgorithms {
         sensitivity: Double,
         sensitivityRatio: Double?,
         minDelta: Double,
-        enableUAM: Bool
+        enableUAM: Bool,
+        targetBG: Double
     ) -> PredictionArrays {
         // ТОЧНАЯ инициализация как в JS (строка 466-477)
         var ci = round(minDelta - bgi, digits: 1)
@@ -1253,12 +1254,18 @@ extension SwiftOpenAPSAlgorithms {
         
         if let carbs = meal?.carbs, carbs > 0 {
             remainingCATimeMin = max(remainingCATimeMin, (meal?.mealCOB ?? 0) / assumedCarbAbsorptionRate)
-            // TODO: lastCarbAge calculation
+            // ТОЧНО как в JS (строка 500): lastCarbAge calculation
+            let lastCarbAge: Double
+            if let lastCarbTime = meal?.lastCarbTime {
+                lastCarbAge = round(clock.timeIntervalSince(lastCarbTime) / 60) // в минутах
+            } else {
+                lastCarbAge = 0
+            }
             let fractionCOBAbsorbed = (carbs - (meal?.mealCOB ?? 0)) / carbs
-            // if the lastCarbTime was 1h ago, increase remainingCATime by 1.5 hours
-            remainingCATime = remainingCATimeMin // + 1.5 * lastCarbAge/60
+            // if the lastCarbTime was 1h ago, increase remainingCATime by 1.5 hours (строка 505)
+            remainingCATime = remainingCATimeMin + 1.5 * lastCarbAge / 60
             remainingCATime = round(remainingCATime, digits: 1)
-            debug(.openAPS, "remainingCATime: \(remainingCATime) hours; \(round(fractionCOBAbsorbed*100))% carbs absorbed")
+            debug(.openAPS, "Last carbs \(Int(lastCarbAge)) minutes ago; remainingCATime: \(remainingCATime) hours; \(round(fractionCOBAbsorbed*100))% carbs absorbed")
         }
         
         // ТОЧНЫЙ расчет totalCI и remainingCarbs как в JS (строка 511-528)
@@ -1391,7 +1398,15 @@ extension SwiftOpenAPSAlgorithms {
         }
         
         ZTpredBGs = ZTpredBGs.map { round(min(401, max(39, $0))) }
-        // TODO: trim ZTpredBGs logic (строка 662-666)
+        // trim ZTpredBGs (строка 662-666): stop displaying once they're rising and above target
+        var i = ZTpredBGs.count - 1
+        while i > 6 {
+            if ZTpredBGs[i - 1] >= ZTpredBGs[i] || ZTpredBGs[i] <= targetBG {
+                break
+            }
+            ZTpredBGs.removeLast()
+            i -= 1
+        }
         
         if (meal?.mealCOB ?? 0) > 0 && (ci > 0 || remainingCIpeak > 0) {
             COBpredBGs = COBpredBGs.map { round(min(401, max(39, $0))) }
