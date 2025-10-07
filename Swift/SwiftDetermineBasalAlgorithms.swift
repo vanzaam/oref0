@@ -937,34 +937,45 @@ extension SwiftOpenAPSAlgorithms {
             // Продолжаем к обычной temp basal logic
         }
 
-        // Основная логика принятия решений с РАЗМИНИФИЦИРОВАННЫМИ переменными + prediction arrays
-        let basalDecisionResult = makeBasalDecisionWithPredictions(
-            currentBG: glucose.glucose,
-            eventualBG: eventualBG,
-            minBG: minBG, // Понятные названия вместо G
-            maxBG: maxBG, // Понятные названия вместо C
-            targetBG: targetBG, // Понятные названия вместо _
-            iob: iob,
-            sensitivity: sensitivity,
-            currentBasal: Double(adjustedBasal), // Понятные названия вместо f
-            maxIOB: maxIOB, // Понятные названия вместо S
-            currentTemp: currentTemp,
-            meal: meal,
-            microBolusAllowed: inputs.microBolusAllowed,
-            reservoir: inputs.reservoir,
+        // ТОЧНАЯ формируем reason как в JS (строка 804-818)
+        let convertedBGI = convertBG(bgi, profile: profile)
+        let convertedDeviation = convertBG(deviation, profile: profile)
+        let convertedISF = convertBG(sensitivity, profile: profile)
+        let convertedTargetBG = convertBG(targetBG, profile: profile)
+        let CR = round(profile.carbRatioValue, digits: 2)
+        
+        var reason = "COB: \(meal?.mealCOB ?? 0), Dev: \(convertedDeviation), BGI: \(convertedBGI), ISF: \(convertedISF), CR: \(CR), minPredBG: \(convertBG(predictionArrays.minPredBG, profile: profile)), minGuardBG: \(convertBG(predictionArrays.minGuardBG, profile: profile)), IOBpredBG: \(convertBG(predictionArrays.lastIOBpredBG, profile: profile))"
+        if predictionArrays.lastCOBpredBG > 0 {
+            reason += ", COBpredBG: \(convertBG(predictionArrays.lastCOBpredBG, profile: profile))"
+        }
+        if predictionArrays.lastUAMpredBG > 0 {
+            reason += ", UAMpredBG: \(convertBG(predictionArrays.lastUAMpredBG, profile: profile))"
+        }
+        reason += "; "
+        
+        // TODO: Портировать логику строк 820-1193 из JS
+        // Пока возвращаем временный результат с правильным reason
+        return .success(DetermineBasalResult(
+            temp: "absolute",
+            bg: glucose.glucose,
             tick: formatTick(glucose.delta),
+            eventualBG: eventualBG,
+            insulinReq: 0,
+            reservoir: inputs.reservoir.map { $0.reservoir },
             deliverAt: clock,
-            sensitivityRatio: sensitivityRatio, // Понятные названия вместо w
-            minDelta: minDelta,
-            maxDelta: maxDelta,
-            profile: profile,
-            predictionArrays: predictionArrays, // 🚀 НОВОЕ: prediction arrays для графиков!
-            bgi: bgi,  // ✅ НОВОЕ: для JSON output
-            deviation: deviation,  // ✅ НОВОЕ: для JSON output
-            targetBGForOutput: targetBG  // ✅ НОВОЕ: для JSON output
-        )
-
-        return .success(basalDecisionResult)
+            sensitivityRatio: sensitivityRatio,
+            reason: reason + "portation in progress",
+            rate: Double(adjustedBasal),
+            duration: 30,
+            units: nil,
+            carbsReq: nil,
+            BGI: convertedBGI,
+            deviation: convertedDeviation,
+            ISF: convertedISF,
+            targetBG: convertedTargetBG,
+            predBGs: predictionArrays.predBGsDict,
+            profile: profile
+        ))
     }
 
     // MARK: - Core Decision Logic (с prediction arrays)
