@@ -68,7 +68,7 @@ extension SwiftOpenAPSAlgorithms {
         }
         
         // ЭТАП 1: findMealInputs() из SwiftMealHistory
-        let treatments = findMealInputs(
+        let treatments = SwiftMealHistory.findMealInputs(
             pumpHistory: inputs.pumpHistory,
             carbHistory: inputs.carbHistory,
             profile: inputs.profile
@@ -79,7 +79,7 @@ extension SwiftOpenAPSAlgorithms {
         }
         
         // ЭТАП 2: recentCarbs() из SwiftMealTotal
-        let result = recentCarbs(
+        let result = SwiftMealTotal.recentCarbs(
             treatments: treatments,
             time: inputs.clock,
             profile: inputs.profile,

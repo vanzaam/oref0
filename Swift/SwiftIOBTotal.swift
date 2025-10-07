@@ -2,7 +2,7 @@ import Foundation
 
 /// ТОЧНАЯ портация lib/iob/total.js
 /// Total IOB calculation with DIA validation and curve support
-extension SwiftOpenAPSAlgorithms {
+enum SwiftIOBTotal {
     
     // MARK: - IOB Total (lib/iob/total.js)
     

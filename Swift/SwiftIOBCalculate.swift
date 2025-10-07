@@ -2,7 +2,7 @@ import Foundation
 
 /// ТОЧНАЯ портация lib/iob/calculate.js
 /// IOB calculation functions - bilinear and exponential curves
-extension SwiftOpenAPSAlgorithms {
+enum SwiftIOBCalculate {
     
     // MARK: - IOB Calculate (lib/iob/calculate.js)
     
@@ -163,30 +163,22 @@ extension SwiftOpenAPSAlgorithms {
         return IOBCalcResult(
             activityContrib: activityContrib,
             iobContrib: iobContrib
-        )
     }
 }
 
 // MARK: - Treatment Structure
 
-extension SwiftOpenAPSAlgorithms {
+extension SwiftIOBCalculate {
     struct Treatment {
         let insulin: Double?
         let date: Date
-        // Add other fields as needed
     }
 }
 
 // MARK: - ProfileResult Extensions
 
-extension SwiftOpenAPSAlgorithms.ProfileResult {
-    var useCustomPeakTime: Bool? {
-        // Should be in profile settings
-        return nil
-    }
-    
-    var insulinPeakTime: Double? {
-        // Should be in profile settings
-        return nil
-    }
-}
+// NOTE: ProfileResult должен уже иметь все необходимые свойства:
+// - dia: Double
+// - insulinPeakTime: Double?
+// - useCustomPeakTime: Bool?
+// Если отсутствуют - добавить в ProfileResult в SwiftProfileAlgorithms.swift!

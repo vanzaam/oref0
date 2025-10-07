@@ -2,7 +2,7 @@ import Foundation
 
 /// ТОЧНАЯ портация lib/meal/history.js
 /// НИ ОДНОГО упрощения! Все как в оригинале!
-extension SwiftOpenAPSAlgorithms {
+enum SwiftMealHistory {
     
     // MARK: - Meal History (lib/meal/history.js)
     

@@ -3,7 +3,7 @@ import Foundation
 /// ТОЧНАЯ портация lib/iob/history.js
 /// Обработка pump history для IOB calculations
 /// ЧАСТЬ 1: Вспомогательные функции (lines 8-159)
-extension SwiftOpenAPSAlgorithms {
+enum SwiftIOBHistory {
     
     // MARK: - IOB History Helper Functions
     

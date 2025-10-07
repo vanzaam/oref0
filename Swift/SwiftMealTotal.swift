@@ -2,7 +2,7 @@ import Foundation
 
 /// ТОЧНАЯ портация lib/meal/total.js
 /// НИ ОДНОГО упрощения! Все как в оригинале!
-extension SwiftOpenAPSAlgorithms {
+enum SwiftMealTotal {
     
     // MARK: - Recent Carbs Result (lib/meal/total.js lines 126-140)
     

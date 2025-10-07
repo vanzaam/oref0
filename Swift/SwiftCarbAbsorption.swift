@@ -2,7 +2,7 @@ import Foundation
 
 /// ТОЧНАЯ портация lib/determine-basal/cob.js
 /// detectCarbAbsorption() - СЛОЖНАЯ функция (212 строк JS)
-extension SwiftOpenAPSAlgorithms {
+enum SwiftCarbAbsorption {
     
     // MARK: - Carb Absorption Detection (lib/determine-basal/cob.js)
     
