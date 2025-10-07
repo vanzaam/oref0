@@ -147,11 +147,13 @@ extension SwiftOpenAPSAlgorithms {
             }
         }
 
-        // ЭТАП 5: MAIN LOOP - Part 1 (lines 150-199)
-        // Initialize arrays
+        // ЭТАП 5-6: MAIN LOOP (lines 150-234)
+        // Initialize arrays and variables
         var deviations: [Double] = []
         var avgDeltas: [Double] = []
         var bgis: [Double] = []
+        var mealCOB: Double = 0
+        var mealCarbs: Double = 0
         
         // Line 150: Loop through bucketed_data starting from index 3
         for i in 3..<bucketed_data.count {
@@ -200,9 +202,44 @@ extension SwiftOpenAPSAlgorithms {
                 deviation = 0
             }
             
-            // TODO: ЭТАПЫ 6-11 (COB, UAM, tempTarget, etc)
+            // ЭТАП 6: COB TRACKING (lines 207-234)
+            let BGTime = bucketedBG.dateTime
+            
+            // Lines 207-221: Process meals
+            while !meals.isEmpty {
+                let lastMeal = meals.last!
+                guard let mealDate = dateFromString(lastMeal.timestamp) else {
+                    meals.removeLast()
+                    continue
+                }
+                let mealTime = mealDate.timeIntervalSince1970 * 1000
+                
+                // Line 211: If meal time < current BG time, add to COB
+                if mealTime < BGTime {
+                    let carbsAmount = lastMeal.carbs ?? 0
+                    if carbsAmount >= 1 {
+                        mealCOB += carbsAmount
+                        mealCarbs += carbsAmount
+                        debug(.openAPS, "Added \(Int(round(mealCOB)))g COB")
+                    }
+                    meals.removeLast()
+                } else {
+                    break
+                }
+            }
+            
+            // Lines 225-234: Calculate carb absorption
+            if mealCOB > 0 {
+                // Line 227: ci = max(deviation, min_5m_carbimpact)
+                let ci = max(deviation, profile.min_5m_carbimpact)
+                // Line 228: absorbed = ci * carb_ratio / sens
+                let absorbed = ci * profile.carb_ratio / sens
+                // Line 230: Subtract absorbed from mealCOB
+                mealCOB = max(0, mealCOB - absorbed)
+            }
+            
+            // TODO: ЭТАПЫ 7-11 (UAM, tempTarget, padding, percentile, ratio)
             // For now just collect deviations
-            // Later will add meal tracking, UAM detection, etc.
         }
         
         // TODO: Analyze deviations and calculate ratio (ЭТАП 10-11)
