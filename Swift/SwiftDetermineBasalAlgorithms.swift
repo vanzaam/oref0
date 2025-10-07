@@ -1100,29 +1100,132 @@ extension SwiftOpenAPSAlgorithms {
             ))
         }
         
-        // TODO: Портировать остальную логику строк 930-1193 из JS (core dosing logic)
-        // Пока возвращаем временный результат
-        return .success(DetermineBasalResult(
-            temp: "absolute",
-            bg: glucose.glucose,
-            tick: formatTick(glucose.delta),
-            eventualBG: eventualBG,
-            insulinReq: 0,
-            reservoir: inputs.reservoir.map { $0.reservoir },
-            deliverAt: clock,
-            sensitivityRatio: sensitivityRatio,
-            reason: reason + "core dosing logic - portation in progress",
-            rate: Double(adjustedBasal),
-            duration: 30,
-            units: nil,
-            carbsReq: finalCarbsReq,
-            BGI: convertedBGI,
-            deviation: convertedDeviation,
-            ISF: convertedISF,
-            targetBG: convertedTargetBG,
-            predBGs: predictionArrays.predBGsDict,
-            profile: profile
-        ))
+        // ТОЧНАЯ портация core dosing logic строк 930-1108 из JS
+        
+        // if eventual BG is below target (строка 930-1005)
+        if eventualBG < minBG {
+            reason += "Eventual BG \(convertBG(eventualBG, profile: profile)) < \(convertBG(minBG, profile: profile))"
+            
+            // if 5m or 30m avg BG is rising faster than expected delta (строка 933-951)
+            if minDelta > expectedDelta && minDelta > 0 && finalCarbsReq == nil {
+                // if naive_eventualBG < 40, set a 30m zero temp (строка 935-938)
+                if naive_eventualBG < 40 {
+                    reason += ", naive_eventualBG < 40. "
+                    return .success(setTempBasal(rate: 0, duration: 30, reason: reason, profile: profile, currentTemp: currentTemp, glucose: glucose, eventualBG: eventualBG, sensitivityRatio: sensitivityRatio, convertedBGI: convertedBGI, convertedDeviation: convertedDeviation, convertedISF: convertedISF, convertedTargetBG: convertedTargetBG, predictionArrays: predictionArrays, carbsReq: finalCarbsReq, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock))
+                }
+                if glucose.delta > minDelta {
+                    reason += ", but Delta \(convertBG(formatTick(glucose.delta), profile: profile)) > expectedDelta \(convertBG(expectedDelta, profile: profile))"
+                } else {
+                    reason += ", but Min. Delta \(String(format: "%.2f", minDelta)) > Exp. Delta \(convertBG(expectedDelta, profile: profile))"
+                }
+                if let temp = currentTemp, temp.duration > 15, roundBasal(Double(adjustedBasal), profile: profile) == roundBasal(Double(temp.rate), profile: profile) {
+                    reason += ", temp \(temp.rate) ~ req \(adjustedBasal)U/hr. "
+                    return .success(DetermineBasalResult(temp: "absolute", bg: glucose.glucose, tick: formatTick(glucose.delta), eventualBG: eventualBG, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock, sensitivityRatio: sensitivityRatio, reason: reason, rate: Double(temp.rate), duration: temp.duration, units: nil, carbsReq: finalCarbsReq, BGI: convertedBGI, deviation: convertedDeviation, ISF: convertedISF, targetBG: convertedTargetBG, predBGs: predictionArrays.predBGsDict, profile: profile))
+                } else {
+                    reason += "; setting current basal of \(adjustedBasal) as temp. "
+                    return .success(setTempBasal(rate: Double(adjustedBasal), duration: 30, reason: reason, profile: profile, currentTemp: currentTemp, glucose: glucose, eventualBG: eventualBG, sensitivityRatio: sensitivityRatio, convertedBGI: convertedBGI, convertedDeviation: convertedDeviation, convertedISF: convertedISF, convertedTargetBG: convertedTargetBG, predictionArrays: predictionArrays, carbsReq: finalCarbsReq, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock))
+                }
+            }
+            
+            // calculate 30m low-temp required (строка 953-1004)
+            var lowTempInsulinReq = 2 * min(0, (eventualBG - targetBG) / sensitivity)
+            lowTempInsulinReq = round(lowTempInsulinReq, digits: 2)
+            var naiveInsulinReq = min(0, (naive_eventualBG - targetBG) / sensitivity)
+            naiveInsulinReq = round(naiveInsulinReq, digits: 2)
+            if minDelta < 0 && minDelta > expectedDelta {
+                let newinsulinReq = round(lowTempInsulinReq * (minDelta / expectedDelta), digits: 2)
+                lowTempInsulinReq = newinsulinReq
+            }
+            var rate = Double(adjustedBasal) + (2 * lowTempInsulinReq)
+            rate = roundBasal(rate, profile: profile)
+            
+            if let temp = currentTemp {
+                let insulinScheduled = Double(temp.duration) * (Double(temp.rate) - Double(adjustedBasal)) / 60
+                let minInsulinReq = min(lowTempInsulinReq, naiveInsulinReq)
+                if insulinScheduled < minInsulinReq - Double(adjustedBasal) * 0.3 {
+                    reason += ", \(temp.duration)m@\(String(format: "%.2f", Double(temp.rate))) is a lot less than needed. "
+                    return .success(setTempBasal(rate: rate, duration: 30, reason: reason, profile: profile, currentTemp: currentTemp, glucose: glucose, eventualBG: eventualBG, sensitivityRatio: sensitivityRatio, convertedBGI: convertedBGI, convertedDeviation: convertedDeviation, convertedISF: convertedISF, convertedTargetBG: convertedTargetBG, predictionArrays: predictionArrays, carbsReq: finalCarbsReq, insulinReq: lowTempInsulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock))
+                }
+                if temp.duration > 5 && rate >= Double(temp.rate) * 0.8 {
+                    reason += ", temp \(temp.rate) ~< req \(String(format: "%.2f", rate))U/hr. "
+                    return .success(DetermineBasalResult(temp: "absolute", bg: glucose.glucose, tick: formatTick(glucose.delta), eventualBG: eventualBG, insulinReq: lowTempInsulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock, sensitivityRatio: sensitivityRatio, reason: reason, rate: Double(temp.rate), duration: temp.duration, units: nil, carbsReq: finalCarbsReq, BGI: convertedBGI, deviation: convertedDeviation, ISF: convertedISF, targetBG: convertedTargetBG, predBGs: predictionArrays.predBGsDict, profile: profile))
+                }
+            }
+            
+            if rate <= 0 {
+                bgUndershoot = targetBG - naive_eventualBG
+                let worstCaseInsulinReq = bgUndershoot / sensitivity
+                var durationReq = round(60 * worstCaseInsulinReq / profile.currentBasal)
+                if durationReq < 0 {
+                    durationReq = 0
+                } else {
+                    durationReq = round(durationReq / 30) * 30
+                    durationReq = min(120, max(0, durationReq))
+                }
+                if durationReq > 0 {
+                    reason += ", setting \(Int(durationReq))m zero temp. "
+                    return .success(setTempBasal(rate: rate, duration: Int(durationReq), reason: reason, profile: profile, currentTemp: currentTemp, glucose: glucose, eventualBG: eventualBG, sensitivityRatio: sensitivityRatio, convertedBGI: convertedBGI, convertedDeviation: convertedDeviation, convertedISF: convertedISF, convertedTargetBG: convertedTargetBG, predictionArrays: predictionArrays, carbsReq: finalCarbsReq, insulinReq: lowTempInsulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock))
+                }
+            } else {
+                reason += ", setting \(String(format: "%.2f", rate))U/hr. "
+            }
+            return .success(setTempBasal(rate: rate, duration: 30, reason: reason, profile: profile, currentTemp: currentTemp, glucose: glucose, eventualBG: eventualBG, sensitivityRatio: sensitivityRatio, convertedBGI: convertedBGI, convertedDeviation: convertedDeviation, convertedISF: convertedISF, convertedTargetBG: convertedTargetBG, predictionArrays: predictionArrays, carbsReq: finalCarbsReq, insulinReq: lowTempInsulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock))
+        }
+        
+        // if eventual BG is above min but BG is falling faster than expected (строка 1007-1024)
+        if minDelta < expectedDelta {
+            if !(inputs.microBolusAllowed && enableSMB) {
+                if glucose.delta < minDelta {
+                    reason += "Eventual BG \(convertBG(eventualBG, profile: profile)) > \(convertBG(minBG, profile: profile)) but Delta \(convertBG(formatTick(glucose.delta), profile: profile)) < Exp. Delta \(convertBG(expectedDelta, profile: profile))"
+                } else {
+                    reason += "Eventual BG \(convertBG(eventualBG, profile: profile)) > \(convertBG(minBG, profile: profile)) but Min. Delta \(String(format: "%.2f", minDelta)) < Exp. Delta \(convertBG(expectedDelta, profile: profile))"
+                }
+                if let temp = currentTemp, temp.duration > 15, roundBasal(Double(adjustedBasal), profile: profile) == roundBasal(Double(temp.rate), profile: profile) {
+                    reason += ", temp \(temp.rate) ~ req \(adjustedBasal)U/hr. "
+                    return .success(DetermineBasalResult(temp: "absolute", bg: glucose.glucose, tick: formatTick(glucose.delta), eventualBG: eventualBG, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock, sensitivityRatio: sensitivityRatio, reason: reason, rate: Double(temp.rate), duration: temp.duration, units: nil, carbsReq: finalCarbsReq, BGI: convertedBGI, deviation: convertedDeviation, ISF: convertedISF, targetBG: convertedTargetBG, predBGs: predictionArrays.predBGsDict, profile: profile))
+                } else {
+                    reason += "; setting current basal of \(adjustedBasal) as temp. "
+                    return .success(setTempBasal(rate: Double(adjustedBasal), duration: 30, reason: reason, profile: profile, currentTemp: currentTemp, glucose: glucose, eventualBG: eventualBG, sensitivityRatio: sensitivityRatio, convertedBGI: convertedBGI, convertedDeviation: convertedDeviation, convertedISF: convertedISF, convertedTargetBG: convertedTargetBG, predictionArrays: predictionArrays, carbsReq: finalCarbsReq, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock))
+                }
+            }
+        }
+        
+        // eventualBG or minPredBG is below max_bg (строка 1025-1038)
+        if min(eventualBG, predictionArrays.minPredBG) < maxBG {
+            if !(inputs.microBolusAllowed && enableSMB) {
+                reason += "\(convertBG(eventualBG, profile: profile))-\(convertBG(predictionArrays.minPredBG, profile: profile)) in range: no temp required"
+                if let temp = currentTemp, temp.duration > 15, roundBasal(Double(adjustedBasal), profile: profile) == roundBasal(Double(temp.rate), profile: profile) {
+                    reason += ", temp \(temp.rate) ~ req \(adjustedBasal)U/hr. "
+                    return .success(DetermineBasalResult(temp: "absolute", bg: glucose.glucose, tick: formatTick(glucose.delta), eventualBG: eventualBG, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock, sensitivityRatio: sensitivityRatio, reason: reason, rate: Double(temp.rate), duration: temp.duration, units: nil, carbsReq: finalCarbsReq, BGI: convertedBGI, deviation: convertedDeviation, ISF: convertedISF, targetBG: convertedTargetBG, predBGs: predictionArrays.predBGsDict, profile: profile))
+                } else {
+                    reason += "; setting current basal of \(adjustedBasal) as temp. "
+                    return .success(setTempBasal(rate: Double(adjustedBasal), duration: 30, reason: reason, profile: profile, currentTemp: currentTemp, glucose: glucose, eventualBG: eventualBG, sensitivityRatio: sensitivityRatio, convertedBGI: convertedBGI, convertedDeviation: convertedDeviation, convertedISF: convertedISF, convertedTargetBG: convertedTargetBG, predictionArrays: predictionArrays, carbsReq: finalCarbsReq, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock))
+                }
+            }
+        }
+        
+        // eventual BG is at/above target (строка 1040-1053)
+        if eventualBG >= maxBG {
+            reason += "Eventual BG \(convertBG(eventualBG, profile: profile)) >= \(convertBG(maxBG, profile: profile)), "
+        }
+        if iob.iob > maxIOB {
+            reason += "IOB \(round(iob.iob, digits: 2)) > max_iob \(maxIOB)"
+            if let temp = currentTemp, temp.duration > 15, roundBasal(Double(adjustedBasal), profile: profile) == roundBasal(Double(temp.rate), profile: profile) {
+                reason += ", temp \(temp.rate) ~ req \(adjustedBasal)U/hr. "
+                return .success(DetermineBasalResult(temp: "absolute", bg: glucose.glucose, tick: formatTick(glucose.delta), eventualBG: eventualBG, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock, sensitivityRatio: sensitivityRatio, reason: reason, rate: Double(temp.rate), duration: temp.duration, units: nil, carbsReq: finalCarbsReq, BGI: convertedBGI, deviation: convertedDeviation, ISF: convertedISF, targetBG: convertedTargetBG, predBGs: predictionArrays.predBGsDict, profile: profile))
+            } else {
+                reason += "; setting current basal of \(adjustedBasal) as temp. "
+                return .success(setTempBasal(rate: Double(adjustedBasal), duration: 30, reason: reason, profile: profile, currentTemp: currentTemp, glucose: glucose, eventualBG: eventualBG, sensitivityRatio: sensitivityRatio, convertedBGI: convertedBGI, convertedDeviation: convertedDeviation, convertedISF: convertedISF, convertedTargetBG: convertedTargetBG, predictionArrays: predictionArrays, carbsReq: finalCarbsReq, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock))
+            }
+        }
+        
+        // calculate 30m high-temp required (строка 1054-1108) - уже портировано выше как insulinReq
+        // rate required to deliver insulinReq more insulin over 30m (строка 1065-1069)
+        var highTempRate = Double(adjustedBasal) + (2 * insulinReq)
+        highTempRate = roundBasal(highTempRate, profile: profile)
+        
+        reason += ", setting \(String(format: "%.2f", highTempRate))U/hr. "
+        return .success(setTempBasal(rate: highTempRate, duration: 30, reason: reason, profile: profile, currentTemp: currentTemp, glucose: glucose, eventualBG: eventualBG, sensitivityRatio: sensitivityRatio, convertedBGI: convertedBGI, convertedDeviation: convertedDeviation, convertedISF: convertedISF, convertedTargetBG: convertedTargetBG, predictionArrays: predictionArrays, carbsReq: finalCarbsReq, insulinReq: insulinReq, reservoir: inputs.reservoir.map { $0.reservoir }, deliverAt: clock))
     }
 
     // MARK: - КРИТИЧЕСКАЯ ФУНКЦИЯ: Prediction Arrays (строка 442-657 determine-basal.js)
@@ -1413,6 +1516,48 @@ extension SwiftOpenAPSAlgorithms {
     }
 
     // MARK: - Helper Functions
+    
+    private static func setTempBasal(
+        rate: Double,
+        duration: Int,
+        reason: String,
+        profile: ProfileResult,
+        currentTemp: TempBasal?,
+        glucose: Glucose,
+        eventualBG: Double,
+        sensitivityRatio: Double?,
+        convertedBGI: Double,
+        convertedDeviation: Double,
+        convertedISF: Double,
+        convertedTargetBG: Double,
+        predictionArrays: PredictionArrays,
+        carbsReq: Double?,
+        insulinReq: Double,
+        reservoir: Double?,
+        deliverAt: Date
+    ) -> DetermineBasalResult {
+        DetermineBasalResult(
+            temp: "absolute",
+            bg: glucose.glucose,
+            tick: formatTick(glucose.delta),
+            eventualBG: eventualBG,
+            insulinReq: insulinReq,
+            reservoir: reservoir,
+            deliverAt: deliverAt,
+            sensitivityRatio: sensitivityRatio,
+            reason: reason,
+            rate: rate,
+            duration: duration,
+            units: nil,
+            carbsReq: carbsReq,
+            BGI: convertedBGI,
+            deviation: convertedDeviation,
+            ISF: convertedISF,
+            targetBG: convertedTargetBG,
+            predBGs: predictionArrays.predBGsDict,
+            profile: profile
+        )
+    }
 
     private static func round(_ value: Double, digits: Int = 0) -> Double {
         // ТОЧНАЯ функция из оригинала (строка 21-26 determine-basal.js)
