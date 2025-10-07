@@ -314,7 +314,41 @@ extension SwiftOpenAPSAlgorithms {
                 deviations.append(deviation)
             }
             
-            // TODO: ЭТАПЫ 8-11 (tempTarget, padding, percentile, ratio)
+            // ЭТАП 8: tempTarget + hour markers (lines 318-343)
+            
+            // Lines 319-331: Add extra negative deviation for high temp target
+            if profile.high_temptarget_raises_sensitivity == true || profile.exerciseMode == true {
+                if let tempTarget = tempTargetRunning(tempTargets: inputs.tempTargets, time: bgTime) {
+                    if tempTarget > 100 {
+                        // Line 326: For 110 target → -0.5, for 160 → -3
+                        let tempDeviation = -(tempTarget - 100) / 20
+                        deviations.append(tempDeviation)
+                        debug(.openAPS, "Added temp target deviation: \(tempDeviation)")
+                    }
+                }
+            }
+            
+            // Lines 333-343: Hour markers + neutral deviations
+            let calendar = Calendar.current
+            let components = calendar.dateComponents([.hour, .minute], from: bgTime)
+            let minutes = components.minute ?? 0
+            let hours = components.hour ?? 0
+            
+            if minutes >= 0 && minutes < 5 {
+                debug(.openAPS, "\(hours)h")
+                // Line 339-341: Add neutral deviation every 2 hours
+                if hours % 2 == 0 {
+                    deviations.append(0)
+                    debug(.openAPS, "Added neutral deviation")
+                }
+            }
+            
+            // ЭТАП 9: Deviations padding (lines 344-349)
+            let lookback = inputs.deviations ?? 96
+            // Line 347-349: Keep only last lookback deviations
+            if deviations.count > lookback {
+                deviations.removeFirst()
+            }
         }
         
         // TODO: Analyze deviations and calculate ratio (ЭТАП 10-11)

@@ -76,12 +76,15 @@ public struct ProfileResult {
     public let autosens_max: Double // ratio limit max (default 1.3)
     public let min_5m_carbimpact: Double // для COB calculation
     public let carb_ratio: Double // для carb absorption
+    public let high_temptarget_raises_sensitivity: Bool? // для temp target
+    public let exerciseMode: Bool? // для temp target
     
     public init(dia: Double, current_basal: Double, carbRatioValue: Double,
                 rewind_resets_autosens: Bool? = nil, sens: Double = 50.0,
                 max_daily_basal: Double = 1.0, autosens_min: Double = 0.7,
                 autosens_max: Double = 1.3, min_5m_carbimpact: Double = 3.0,
-                carb_ratio: Double = 10.0) {
+                carb_ratio: Double = 10.0, high_temptarget_raises_sensitivity: Bool? = nil,
+                exerciseMode: Bool? = nil) {
         self.dia = dia
         self.current_basal = current_basal
         self.carbRatioValue = carbRatioValue
@@ -92,6 +95,8 @@ public struct ProfileResult {
         self.autosens_max = autosens_max
         self.min_5m_carbimpact = min_5m_carbimpact
         self.carb_ratio = carb_ratio
+        self.high_temptarget_raises_sensitivity = high_temptarget_raises_sensitivity
+        self.exerciseMode = exerciseMode
     }
 }
 
