@@ -100,6 +100,30 @@ public struct BasalProfileEntry {
     }
 }
 
+/// Temp targets structure
+public struct TempTargets {
+    public let targets: [TempTarget]
+    
+    public init(targets: [TempTarget]) {
+        self.targets = targets
+    }
+}
+
+/// Temp target
+public struct TempTarget {
+    public let createdAt: Date?
+    public let duration: Int
+    public let targetTop: Int?
+    public let targetBottom: Int?
+    
+    public init(createdAt: Date?, duration: Int, targetTop: Int?, targetBottom: Int?) {
+        self.createdAt = createdAt
+        self.duration = duration
+        self.targetTop = targetTop
+        self.targetBottom = targetBottom
+    }
+}
+
 /// Debug function placeholder
 public func debug(_ category: DebugCategory, _ message: String) {
     // This should be replaced with actual logging from FreeAPS X

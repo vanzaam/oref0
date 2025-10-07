@@ -402,4 +402,38 @@ extension SwiftOpenAPSAlgorithms {
 
         return totalAbsorbed
     }
+    
+    /// Портирование tempTargetRunning() из lib/determine-basal/autosens.js (lines 429-454)
+    /// Проверяет активен ли temporary target
+    private static func tempTargetRunning(tempTargets: TempTargets?, time: Date) -> Double? {
+        guard let tempTargets = tempTargets, !tempTargets.targets.isEmpty else {
+            return nil
+        }
+        
+        // Line 432: Sort temp targets by date (most recent first)
+        let sortedTargets = tempTargets.targets.sorted { 
+            ($0.createdAt ?? Date.distantPast) > ($1.createdAt ?? Date.distantPast)
+        }
+        
+        // Lines 438-453: Loop through targets
+        for target in sortedTargets {
+            guard let createdAt = target.createdAt else { continue }
+            
+            let start = createdAt
+            let expires = start.addingTimeInterval(Double(target.duration) * 60)
+            
+            // Line 443-446: Check if duration is 0 (cancel temp targets)
+            if time >= start && target.duration == 0 {
+                return 0
+            }
+            // Line 447-451: Check if temp target is active
+            else if time >= start && time < expires {
+                // Calculate average of targetTop and targetBottom
+                let tempTarget = (Double(target.targetTop ?? 100) + Double(target.targetBottom ?? 100)) / 2.0
+                return tempTarget
+            }
+        }
+        
+        return nil
+    }
 }
