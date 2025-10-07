@@ -9,9 +9,119 @@ extension SwiftOpenAPSAlgorithms {
     /// Main autotune prep function - categorizes glucose data for tuning
     /// From: lib/autotune-prep/index.js
     static func autotunePrep(inputs: AutotuneInputs) -> Result<AutotunePreppedData, SwiftOpenAPSError> {
-        // NOTE: This function body needs to be copied from SwiftAutotuneAlgorithms.swift lines 161-275
-        // TODO: Copy implementation from SwiftAutotuneAlgorithms.swift
-        return .failure(.calculationError("Not implemented - copy from SwiftAutotuneAlgorithms.swift lines 161-275"))
+        // Sort treatments as in original (line 15-20)
+        let sortedTreatments = inputs.carbHistory.sorted { a, b in
+            let aDate = a.createdAt
+            let bDate = b.createdAt
+            return bDate.timeIntervalSince1970 > aDate.timeIntervalSince1970
+        }
+
+        // Prepare glucose data as in original (line 24-53)
+        let glucoseData = inputs.glucoseData.compactMap { bg -> AutotuneGlucoseEntry? in
+            guard let glucose = bg.glucose,
+                  glucose >= 39 // Only take records above 39 as in oref0
+            else { return nil }
+
+            let bgDate = bg.dateString ?? Date.distantPast
+            let timestamp = bgDate.timeIntervalSince1970 * 1000 // milliseconds as in JS
+
+            return AutotuneGlucoseEntry(
+                glucose: Double(glucose),
+                dateString: ISO8601DateFormatter().string(from: bgDate),
+                date: timestamp,
+                deviation: 0, // Calculated during autotune processing
+                avgDelta: 0, // Calculated during autotune processing
+                BGI: 0, // Calculated during autotune processing
+                mealCarbs: 0, // Calculated during autotune processing
+                mealAbsorption: nil,
+                uamAbsorption: nil,
+                type: ""
+            )
+        }.sorted { a, b in
+            b.date > a.date // sort by date descending
+        }
+
+        // CRITICAL FUNCTION: Bucketing data as in original (line 74-95)
+        var bucketedData: [AutotuneGlucoseEntry] = []
+        guard !glucoseData.isEmpty else {
+            return .failure(.calculationError("No valid glucose data"))
+        }
+
+        bucketedData.append(glucoseData[0])
+        var j = 0
+        var k = 0 // index of first value used by bucket
+
+        for i in 1 ..< glucoseData.count {
+            let BGTime = glucoseData[i].date
+            let lastBGTime = glucoseData[k].date
+            let elapsedMinutes = (BGTime - lastBGTime) / (60 * 1000) // convert to minutes
+
+            if abs(elapsedMinutes) >= 2 {
+                j += 1 // move to next bucket
+                k = i // store index of first value used by bucket
+                bucketedData.append(glucoseData[i])
+            } else {
+                // average all readings within time deadband (line 89-94)
+                let slice = glucoseData[k ... i]
+                let glucoseTotal = slice.reduce(0) { total, entry in
+                    total + entry.glucose
+                }
+                var averaged = bucketedData[j]
+                averaged.glucose = glucoseTotal / Double(i - k + 1)
+                bucketedData[j] = averaged
+            }
+        }
+
+        debug(.openAPS, "📊 Autotune: Bucketed \(glucoseData.count) glucose points into \(bucketedData.count) buckets")
+
+        // CRITICAL FUNCTION: Main categorization loop (line 126-374)
+        let result = categorizeBGDatums(
+            bucketedData: bucketedData,
+            treatments: sortedTreatments,
+            profile: inputs.profile,
+            pumpHistory: inputs.pumpHistory,
+            pumpBasalProfile: inputs.pumpProfile.basals,
+            basalProfile: inputs.profile.basals,
+            categorizeUamAsBasal: inputs.categorizeUamAsBasal
+        )
+
+        // Add DIA and Peak analysis if needed (line 25-170 in index.js)
+        var finalResult = result
+        if inputs.tuneInsulinCurve {
+            let diaAnalysis = analyzeDIADeviations(
+                bucketedData: bucketedData,
+                treatments: sortedTreatments,
+                profile: inputs.profile,
+                pumpHistory: inputs.pumpHistory,
+                pumpBasalProfile: inputs.pumpProfile.basals,
+                basalProfile: inputs.profile.basals
+            )
+
+            let peakAnalysis = analyzePeakTimeDeviations(
+                bucketedData: bucketedData,
+                treatments: sortedTreatments,
+                profile: inputs.profile,
+                pumpHistory: inputs.pumpHistory,
+                pumpBasalProfile: inputs.pumpProfile.basals,
+                basalProfile: inputs.profile.basals
+            )
+
+            finalResult = AutotunePreppedData(
+                CSFGlucoseData: result.CSFGlucoseData,
+                ISFGlucoseData: result.ISFGlucoseData,
+                basalGlucoseData: result.basalGlucoseData,
+                CRData: result.CRData,
+                diaDeviations: diaAnalysis,
+                peakDeviations: peakAnalysis
+            )
+        }
+
+        info(
+            .openAPS,
+            "📊 Autotune Prep Results: CSF=\(finalResult.CSFGlucoseData.count), ISF=\(finalResult.ISFGlucoseData.count), Basal=\(finalResult.basalGlucoseData.count)"
+        )
+
+        return .success(finalResult)
     }
     
     // MARK: - Categorization (from lib/autotune-prep/categorize.js)
