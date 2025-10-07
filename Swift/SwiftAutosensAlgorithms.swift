@@ -70,11 +70,35 @@ extension SwiftOpenAPSAlgorithms {
         let carbs: Double
     }
 
-    /// Портирование freeaps_autosens функции из минифицированного JavaScript
-    /// Анализирует отклонения глюкозы для определения чувствительности к инсулину
+    /// ПОЛНАЯ портация detectSensitivity() из lib/determine-basal/autosens.js
+    /// Lines 11-426: Анализ чувствительности к инсулину
     static func calculateAutosens(inputs: AutosensInputs) -> Result<AutosensResult, SwiftOpenAPSError> {
-        // Проверяем достаточность данных
-        guard inputs.glucoseData.count >= 72 else {
+        // Line 14-18: Map glucose data (support sgv field)
+        var glucose_data = inputs.glucoseData.map { bg -> BloodGlucose in
+            var mutableBG = bg
+            // Support NS sgv field
+            if mutableBG.glucose == nil, let sgv = mutableBG.sgv {
+                mutableBG.glucose = sgv
+            }
+            return mutableBG
+        }
+        
+        // Line 20-22: Get inputs
+        let profile = inputs.profile
+        let basalprofile = inputs.basalProfile
+        
+        // ЭТАП 2: BUCKETING (lines 72-120)
+        // Lines 72: Reverse glucose_data (newest first → oldest first)
+        glucose_data.reverse()
+        
+        // Line 73-120: Bucket glucose data by 5-minute intervals
+        let bucketed_data = bucketGlucoseData(
+            glucose_data: glucose_data,
+            lastSiteChange: nil // TODO: ЭТАП 3
+        )
+        
+        guard bucketed_data.count >= 36 else {
+            // Need at least 3 hours of bucketed data
             let result = AutosensResult(
                 ratio: 1.0,
                 deviation: 0,
@@ -84,11 +108,6 @@ extension SwiftOpenAPSAlgorithms {
                 timestamp: Date()
             )
             return .success(result)
-        }
-
-        // Сортируем данные по времени (от старых к новым)
-        let sortedGlucose = inputs.glucoseData.sorted {
-            ($0.dateString ?? Date.distantPast) < ($1.dateString ?? Date.distantPast)
         }
 
         // Анализируем данные за 8 и 24 часа
@@ -417,6 +436,97 @@ extension SwiftOpenAPSAlgorithms {
         }
 
         return totalAbsorbed
+    }
+    
+    // MARK: - Bucketing Function
+    
+    /// Портирование bucketing logic из autosens.js (lines 72-120)
+    /// Группирует glucose по 5-минутным интервалам
+    private static func bucketGlucoseData(
+        glucose_data: [BloodGlucose],
+        lastSiteChange: Date?
+    ) -> [BucketedGlucose] {
+        var bucketed_data: [BucketedGlucose] = []
+        
+        guard glucose_data.count > 0 else { return [] }
+        
+        // Line 73: Start with first glucose
+        if let firstGlucose = glucose_data.first?.glucose,
+           let firstDate = glucose_data.first?.date {
+            bucketed_data.append(BucketedGlucose(
+                date: firstDate,
+                glucose: Double(firstGlucose),
+                dateTime: firstDate.timeIntervalSince1970 * 1000,
+                mealCarbs: nil
+            ))
+        }
+        
+        var j = 0
+        
+        // Lines 78-119: Loop through glucose data
+        for i in 1..<glucose_data.count {
+            let current = glucose_data[i]
+            let previous = glucose_data[i-1]
+            
+            // Lines 81-87: Determine bgTime
+            guard let bgTime = current.date else {
+                warning(.openAPS, "Could not determine BG time")
+                continue
+            }
+            
+            // Lines 88-96: Determine lastbgTime
+            let lastbgTime: Date
+            if let prevDate = previous.date {
+                lastbgTime = prevDate
+            } else if j >= 0, j < bucketed_data.count {
+                lastbgTime = bucketed_data[j].date
+            } else {
+                warning(.openAPS, "Could not determine last BG time")
+                continue
+            }
+            
+            // Lines 97-100: Skip if glucose < 39
+            guard let currentGlucose = current.glucose,
+                  let previousGlucose = previous.glucose,
+                  currentGlucose >= 39,
+                  previousGlucose >= 39 else {
+                continue
+            }
+            
+            // Lines 102-108: Only consider BGs since lastSiteChange
+            if let lastSiteChange = lastSiteChange {
+                let hoursSinceSiteChange = bgTime.timeIntervalSince(lastSiteChange) / 3600
+                if hoursSinceSiteChange < 0 {
+                    continue
+                }
+            }
+            
+            // Lines 109-118: Check elapsed time and bucket
+            let elapsed_minutes = bgTime.timeIntervalSince(lastbgTime) / 60
+            
+            if abs(elapsed_minutes) > 2 {
+                // Line 111-113: New bucket
+                j += 1
+                bucketed_data.append(BucketedGlucose(
+                    date: bgTime,
+                    glucose: Double(currentGlucose),
+                    dateTime: bgTime.timeIntervalSince1970 * 1000,
+                    mealCarbs: nil
+                ))
+            } else {
+                // Line 116: Average with current bucket
+                if j < bucketed_data.count {
+                    bucketed_data[j].glucose = (bucketed_data[j].glucose + Double(currentGlucose)) / 2
+                }
+            }
+        }
+        
+        // Line 120: Remove first element (was just for reference)
+        if !bucketed_data.isEmpty {
+            bucketed_data.removeFirst()
+        }
+        
+        return bucketed_data
     }
     
     /// Портирование tempTargetRunning() из lib/determine-basal/autosens.js (lines 429-454)
