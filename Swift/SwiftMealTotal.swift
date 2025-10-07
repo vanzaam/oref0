@@ -220,42 +220,28 @@ enum SwiftMealTotal {
         )
     }
     
-    /// PLACEHOLDER для detectCarbAbsorption - будет заменен в ЭТАП 3
-    /// Временная упрощенная версия для компиляции
-    private static func detectCarbAbsorption_placeholder(
-        glucoseData: [BloodGlucose],
-        iobInputs: IOBInputs,
-        basalProfile: [BasalProfileEntry],
-        mealTime: Double,
-        ciTime: Double? = nil
-    ) -> (carbsAbsorbed: Double, currentDeviation: Double, maxDeviation: Double, minDeviation: Double, slopeFromMaxDeviation: Double, slopeFromMinDeviation: Double, allDeviations: [Double]) {
-        
-        // TODO: ЭТАП 3 - заменить на ТОЧНУЮ портацию из lib/determine-basal/cob.js
-        
-        // Упрощенная линейная модель (как было)
-        let now = Date().timeIntervalSince1970 * 1000
-        let hoursElapsed = (now - mealTime) / (1000 * 3600)
-        let totalAbsorptionTime = 4.0 // hours
-        
-        var carbsAbsorbed: Double = 0
-        if hoursElapsed >= 0 {
-            if hoursElapsed >= totalAbsorptionTime {
-                carbsAbsorbed = 100 // Assume all absorbed
-            } else {
-                let absorptionFraction = hoursElapsed / totalAbsorptionTime
-                carbsAbsorbed = 100 * absorptionFraction
-            }
-        }
-        
-        // Placeholder deviations - will be calculated properly in STAGE 3
-        return (
-            carbsAbsorbed: carbsAbsorbed,
-            currentDeviation: 5.0, // placeholder
-            maxDeviation: 10.0, // placeholder
-            minDeviation: -5.0, // placeholder
-            slopeFromMaxDeviation: 1.0, // placeholder
-            slopeFromMinDeviation: -1.0, // placeholder
-            allDeviations: [5.0, 10.0, -5.0] // placeholder
-        )
-    }
+    // MARK: - detectCarbAbsorption Integration
+    
+    /// УДАЛЕН PLACEHOLDER! Используем SwiftCarbAbsorption.detectCarbAbsorption()
+    /// 
+    /// Полная портация в SwiftCarbAbsorption.swift (212 строк JS → 263 строки Swift)
+    /// lib/determine-basal/cob.js (lines 8-210)
+    ///
+    /// ВЫЗОВ:
+    /// let result = SwiftCarbAbsorption.detectCarbAbsorption(
+    ///     glucoseData: glucoseData,
+    ///     iobInputs: iobInputs,
+    ///     basalProfile: basalProfile,
+    ///     mealTime: mealTime,
+    ///     ciTime: ciTime
+    /// )
+    ///
+    /// ВОЗВРАЩАЕТ:
+    /// - carbsAbsorbed: Double
+    /// - currentDeviation: Double
+    /// - maxDeviation: Double
+    /// - minDeviation: Double
+    /// - slopeFromMaxDeviation: Double
+    /// - slopeFromMinDeviation: Double
+    /// - allDeviations: [Double]
 }
