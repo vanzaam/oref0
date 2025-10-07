@@ -502,47 +502,10 @@ extension SwiftOpenAPSAlgorithms {
         return calculateIOB(inputs: inputs)
     }
 
-    private static func calculateCarbImpactAtTime(
-        time: Date,
-        carbHistory: [CarbsEntry],
-        profile: ProfileResult
-    ) -> Double {
-        // Рассчитываем влияние углеводов на указанное время
-        let relevantCarbs = carbHistory.filter { carb in
-            let carbTime = carb.createdAt
-            return carbTime <= time && carbTime >= time.addingTimeInterval(-4 * 3600) // 4 часа назад
-        }
-
-        var totalImpact = 0.0
-
-        for carb in relevantCarbs {
-            let carbTime = carb.createdAt
-            let minutesAgo = time.timeIntervalSince(carbTime) / 60.0
-
-            // ТОЧНАЯ модель влияния углеводов из исходного autosens.js
-            let peakTime = 60.0 // Пик через 60 минут
-            let duration = 240.0 // Действие 4 часа
-
-            if minutesAgo >= 0, minutesAgo <= duration {
-                let impact: Double
-                if minutesAgo <= peakTime {
-                    // Нарастание до пика
-                    impact = Double(carb.carbs) * (minutesAgo / peakTime) * 0.8
-                } else {
-                    // Спад после пика
-                    let remaining = (duration - minutesAgo) / (duration - peakTime)
-                    impact = Double(carb.carbs) * 0.8 * remaining
-                }
-
-                // Конвертируем в mg/dL изменение за 5 минут
-                let carbRatio = profile.carbRatioValue
-                let sensitivity = profile.sens
-                totalImpact += impact * carbRatio / sensitivity * 18.0 / 12.0 // За 5-минутный интервал
-            }
-        }
-
-        return totalImpact
-    }
+    // calculateCarbImpactAtTime() - УДАЛЕНА!
+    // Была из старой упрощенной версии, не используется в полной портации
+    // В autosens.js НЕТ отдельного расчета carbImpact на момент времени
+    // Carb absorption рассчитывается inline в main loop через COB tracking
 
     // classifyDeviation() - УДАЛЕНА, не используется в новой версии
     // Type classification теперь в main loop (lines 245-309)
@@ -553,46 +516,15 @@ extension SwiftOpenAPSAlgorithms {
     // - formatRatioLimit() - inline в ЭТАП 11  
     // - formatSensResult() - inline в ЭТАП 11
 
-    private static func calculateAbsorbedCarbs(
-        time: Date,
-        carbHistory: [CarbsEntry],
-        profile _: ProfileResult
-    ) -> Double {
-        // ТОЧНЫЙ расчет поглощенных углеводов на момент времени как в JS
-        let relevantCarbs = carbHistory.filter { carb in
-            let carbTime = carb.createdAt
-            return carbTime <= time && carbTime >= time.addingTimeInterval(-8 * 3600) // 8 часов назад
-        }
-
-        var totalAbsorbed = 0.0
-
-        for carb in relevantCarbs {
-            let carbTime = carb.createdAt
-            let minutesAgo = time.timeIntervalSince(carbTime) / 60.0
-
-            // Используем ту же модель абсорбции что и в meal calculation
-            let absorptionTime = 240.0 // 4 часа
-            let peakTime = 90.0 // Пик через 90 минут
-
-            if minutesAgo >= 0, minutesAgo <= absorptionTime {
-                let absorbedFraction: Double
-                if minutesAgo <= peakTime {
-                    let peakFraction = peakTime / absorptionTime
-                    absorbedFraction = (minutesAgo / absorptionTime / peakFraction) * 0.6
-                } else {
-                    let t = minutesAgo / absorptionTime
-                    absorbedFraction = 0.6 + (t - (peakTime / absorptionTime)) * 0.4 / (1 - (peakTime / absorptionTime))
-                }
-
-                totalAbsorbed += Double(carb.carbs) * min(1.0, absorbedFraction)
-            } else if minutesAgo > absorptionTime {
-                // Полностью поглощены
-                totalAbsorbed += Double(carb.carbs)
-            }
-        }
-
-        return totalAbsorbed
-    }
+    // calculateAbsorbedCarbs() - УДАЛЕНА!
+    // Была из старой упрощенной версии, не используется в полной портации
+    // В новой версии carb absorption рассчитывается inline в main loop (ЭТАП 6):
+    //   if mealCOB > 0 {
+    //       let ci = max(deviation, min_5m_carbimpact)
+    //       let absorbed = ci * carb_ratio / sens
+    //       mealCOB = max(0, mealCOB - absorbed)
+    //   }
+    // Это ТОЧНАЯ портация из autosens.js lines 225-234!
     
     // MARK: - ISF and Basal Lookup Functions
     
