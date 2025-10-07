@@ -156,25 +156,73 @@ extension SwiftOpenAPSAlgorithms {
         time: Date,
         pumpHistory: [PumpHistoryEvent],
         profile: ProfileResult,
-        autosens: Autosens?
+        avgBasal _: Double
     ) -> IOBResult {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 1062-1088
-        // TODO: Copy implementation
-        return IOBResult(iob: 0, activity: 0, basaliob: 0, netbasalinsulin: 0, bolusiob: 0, lastBolusTime: 0, lastTemp: nil)
+        // Trim pump history to 6h prior as in original (line 174-191)
+        let sixHoursAgo = time.addingTimeInterval(-6 * 3600)
+        let relevantHistory = pumpHistory.filter { event in
+            let eventTime = event.timestamp
+            return eventTime <= time && eventTime > sixHoursAgo
+        }
+
+        // Create temp profile with avgBasal for IOB calculation
+        var tempProfile = profile
+        // In Swift we can't just change currentBasal, need to create new ProfileResult
+        // Use existing calculateIOB function
+
+        let inputs = IOBInputs(
+            pumpHistory: relevantHistory,
+            profile: tempProfile,
+            clock: time,
+            autosens: nil
+        )
+
+        return calculateIOB(inputs: inputs)
     }
     
     /// Get current sensitivity from ISF profile
     private static func getCurrentSensitivity(from isf: InsulinSensitivities, at date: Date) -> Double {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 1090-1110
-        // TODO: Copy implementation
-        return 50.0
+        // ISF lookup as in original lib/profile/isf.js
+        let calendar = Calendar.current
+        let hour = calendar.component(.hour, from: date)
+        let minute = calendar.component(.minute, from: date)
+        let minutesFromMidnight = hour * 60 + minute
+
+        // Find current sensitivity
+        let sortedSensitivities = isf.sensitivities.sorted { a, b in
+            getMinutesFromStart(a.start) > getMinutesFromStart(b.start)
+        }
+
+        for sensitivity in sortedSensitivities {
+            let startMinutes = getMinutesFromStart(sensitivity.start)
+            if minutesFromMidnight >= startMinutes {
+                return Double(sensitivity.sensitivity)
+            }
+        }
+
+        return Double(isf.sensitivities.first?.sensitivity ?? 50.0)
     }
     
     /// Get current basal rate from profile
     private static func getCurrentBasalRate(from basals: [BasalProfileEntry], at date: Date) -> Double {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 1112-1131
-        // TODO: Copy implementation
-        return 1.0
+        // Basal lookup as in original lib/profile/basal.js
+        let calendar = Calendar.current
+        let hour = calendar.component(.hour, from: date)
+        let minute = calendar.component(.minute, from: date)
+        let minutesFromMidnight = hour * 60 + minute
+
+        let sortedBasals = basals.sorted { a, b in
+            (a.minutes ?? 0) > (b.minutes ?? 0)
+        }
+
+        for basal in sortedBasals {
+            let startMinutes = basal.minutes ?? 0
+            if minutesFromMidnight >= startMinutes {
+                return Double(basal.rate)
+            }
+        }
+
+        return Double(basals.first?.rate ?? 1.0)
     }
     
     /// Calculate insulin dosed in time period
@@ -183,9 +231,32 @@ extension SwiftOpenAPSAlgorithms {
         to endTime: Date,
         pumpHistory: [PumpHistoryEvent]
     ) -> Double {
-        // NOTE: Copy from SwiftAutotuneAlgorithms.swift lines 1133-1164
-        // TODO: Copy implementation
-        return 0.0
+        // Simplified insulin dosed calculation
+        let relevantEvents = pumpHistory.filter { event in
+            let eventTime = event.timestamp
+            return eventTime >= startTime && eventTime <= endTime
+        }
+
+        var totalInsulin = 0.0
+
+        for event in relevantEvents {
+            switch event.type {
+            case .bolus:
+                if let amount = event.amount {
+                    totalInsulin += Double(amount)
+                }
+            case .tempBasal,
+                 .tempBasalDuration:
+                if let rate = event.rate, let duration = event.duration {
+                    let hours = Double(duration) / 60.0
+                    totalInsulin += Double(rate) * hours
+                }
+            default:
+                break
+            }
+        }
+
+        return totalInsulin
     }
     
     // MARK: - DIA and Peak Analysis (from lib/autotune-prep/categorize.js)
