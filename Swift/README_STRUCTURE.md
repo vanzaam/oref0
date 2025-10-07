@@ -13,7 +13,7 @@ Swift/
 ├── IOB/                  ← IOB Module (4 файла, 1112 строк)
 ├── Meal/                 ← MEAL Module (4 файла, 744 строки)
 ├── Autosens/             ← AUTOSENS Module (1 файл, 760 строк)
-├── Core/                 ← Core файлы (9 файлов)
+├── Core/                 ← Core файлы (6 файлов)
 ├── Docs/                 ← Документация (74 MD файла)
 └── Tests/                ← Unit тесты
 ```
@@ -90,7 +90,7 @@ cp Swift/Autosens/* YourProject/Core/Algorithms/Autosens/
 
 ## 📁 Core/ - Основные файлы
 
-**9 файлов**
+**6 файлов**
 
 | Файл | Описание |
 |------|----------|
@@ -99,13 +99,20 @@ cp Swift/Autosens/* YourProject/Core/Algorithms/Autosens/
 | `SwiftProfileAlgorithms.swift` | Profile calculations |
 | `SwiftBasalSetTemp.swift` | Basal temp setting |
 | `SwiftGlucoseGetLast.swift` | Glucose data retrieval |
-| `SwiftOpenAPS.swift` | OpenAPS coordinator |
 | `SwiftAutotuneCoreAlgorithms.swift` | Autotune core |
 | `SwiftAutotunePrepAlgorithms.swift` | Autotune prep |
 | `SwiftAutotuneShared.swift` | Autotune shared |
 
 **⚠️ ВАЖНО:** `SwiftTypes.swift` - только для standalone компиляции!  
 В production замените на реальные типы из FreeAPS X.
+
+**🗑️ УДАЛЕНО (гибридный режим - плохая идея!):**
+- ~~`HybridOpenAPS.swift`~~ - одновременный Swift+JS работает криво
+- ~~`SwiftOpenAPSCoordinator.swift`~~ - не нужен без гибридного режима
+- ~~`SwiftOpenAPS.swift`~~ - обертка для гибридного режима
+
+**Используйте напрямую:**
+- `IOBAlgorithms`, `MealAlgorithms`, `OpenAPSAlgorithms` из соответствующих модулей
 
 ---
 
