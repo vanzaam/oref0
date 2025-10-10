@@ -6,13 +6,13 @@ module.exports = {
   entry: {
     iob: './lib/iob/index.js',
     meal: './lib/meal/index.js',
-    "determineBasal": './lib/determine-basal/determine-basal.js',
-    "glucoseGetLast": './lib/glucose-get-last.js',
-    "basalSetTemp": './lib/basal-set-temp.js',
+    determine_basal: './lib/determine-basal/determine-basal.js',
+    glucose_get_last: './lib/glucose-get-last.js',
+    basal_set_temp: './lib/basal-set-temp.js',
     autosens: './lib/determine-basal/autosens.js',
     profile: './lib/profile/index.js',
-    "autotunePrep": './lib/autotune-prep/index.js',
-    "autotuneCore": './lib/autotune/index.js'
+    autotune_prep: './lib/autotune-prep/index.js',
+    autotune_core: './lib/autotune/index.js'
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
@@ -21,7 +21,7 @@ module.exports = {
     library: 'freeaps_[name]'
   },
   optimization: {
-    minimize: true,
-    minimizer: [new TerserPlugin()],
+    minimize: false,
+    // minimizer: [new TerserPlugin()],
   },
 };

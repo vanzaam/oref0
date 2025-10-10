@@ -1,4 +1,36 @@
-var percentile = require('../percentile')
+var freeaps_autotune_core;
+/******/ (() => { // webpackBootstrap
+/******/ 	var __webpack_modules__ = ({
+
+/***/ 2894:
+/***/ ((module) => {
+
+"use strict";
+
+// From https://gist.github.com/IceCreamYou/6ffa1b18c4c8f6aeaad2
+// Returns the value at a given percentile in a sorted numeric array.
+// "Linear interpolation between closest ranks" method
+module.exports = function percentile(arr, p) {
+    if (arr.length === 0) return 0;
+    if (typeof p !== 'number') throw new TypeError('p must be a number');
+    if (p <= 0) return arr[0];
+    if (p >= 1) return arr[arr.length - 1];
+
+    var index = arr.length * p,
+        lower = Math.floor(index),
+        upper = lower + 1,
+        weight = index % 1;
+
+    if (upper >= arr.length) return arr[lower];
+    return arr[lower] * (1 - weight) + arr[upper] * weight;
+}
+
+/***/ }),
+
+/***/ 6227:
+/***/ ((module, exports, __webpack_require__) => {
+
+var percentile = __webpack_require__(2894)
 
 // does three things - tunes basals, ISF, and CSF
 
@@ -564,3 +596,43 @@ function tuneAllTheThings (inputs) {
 }
 
 exports = module.exports = tuneAllTheThings;
+
+
+/***/ })
+
+/******/ 	});
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/ 	
+/******/ 		// Execute the module function
+/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
+/******/ 	
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/ 	
+/************************************************************************/
+/******/ 	
+/******/ 	// startup
+/******/ 	// Load entry module and return exports
+/******/ 	// This entry module is referenced by other modules so it can't be inlined
+/******/ 	var __webpack_exports__ = __webpack_require__(6227);
+/******/ 	freeaps_autotune_core = __webpack_exports__;
+/******/ 	
+/******/ })()
+;
